@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: ASSUME Developers
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# .readthedocs.yaml
+# Read the Docs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+
+# Required
+version: 2
+sphinx:
+  # Path to your Sphinx configuration file.
+  configuration: docs/source/conf.py
+
+# Set the version of Python and other tools you might need
+build:
+  os: ubuntu-lts-latest
+  tools:
+    python: mambaforge-4.10
+
+conda:
+  environment: environment_docs.yaml

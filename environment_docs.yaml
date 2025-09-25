@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: ASSUME Developers
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name: assume-doc
+channels:
+  - conda-forge
+dependencies:
+- python>=3.12
+- pip
+- ipykernel
+- pandas
+- numpy
+- tqdm
+- SQLAlchemy
+- pytorch
+- pyomo
+- pypsa
+
+- pip:
+  - .[all]
+  - sphinx<8.2
+  - sphinx-book-theme
+  - nbsphinx
+  - nbsphinx-link
+  - sphinx-argparse
+  - sphinxcontrib-mermaid

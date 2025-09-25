@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: ASSUME Developers
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+services:
+  assume_db:
+    image: timescale/timescaledb-ha:pg17-oss
+    # smaller without postgis support:
+    # image: timescale/timescaledb:latest-pg17
+    container_name: assume_db
+    restart: always
+    # running as 0 removes the need to create the volume bind-mount beforehand
+    user: "0:0"
+    environment:
+      - POSTGRES_USER=assume
+      - POSTGRES_PASSWORD=assume
+      - POSTGRES_DB=assume
+      - TS_TUNE_MAX_CONNS=500
+      # pgdata is /home/postgres/pgdata otherwise
+      # https://github.com/timescale/timescaledb-docker-ha/blob/345ceabef65c808ec6aaaa61a8b6ca568ccad7d3/Dockerfile#L460
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      # needed for normal image
+      - ./assume-db:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: assume_grafana
+    user: "104"
+    depends_on:
+      - assume_db
+    ports:
+      - 3000:3000
+    environment:
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_INSTALL_PLUGINS: "marcusolsson-dynamictext-panel,orchestracities-map-panel"
+      GF_SECURITY_ADMIN_USER: assume
+      GF_SECURITY_ADMIN_PASSWORD: "assume"
+      GF_RENDERING_SERVER_URL: http://renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_LOG_FILTERS: rendering:debug
+      GF_USERS_DEFAULT_THEME: light
+    volumes:
+      - ./docker_configs/grafana.ini:/etc/grafana/grafana.ini
+      - ./docker_configs/datasources:/etc/grafana/provisioning/datasources
+      - ./docker_configs/dashboards:/etc/grafana/provisioning/dashboards
+      - ./docker_configs/dashboard-definitions:/etc/grafana/provisioning/dashboard-definitions
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+
+  # to enable rendering png screenshots directly from grafana
+  # for example to embed them in an iframe, you can use this
+  renderer:
+    image: grafana/grafana-image-renderer:latest
+    container_name: renderer
+    profiles: ["renderer"]
+    ports:
+      - 8081
+
+
+  # to run a single simulation in
+  simulation:
+    container_name: simulation
+    image: ghcr.io/assume-framework/assume:latest
+    profiles: ["simulation"]
+    build: .
+    depends_on:
+      - assume_db
+    command: -s example_01a -c tiny -db "postgresql://assume:assume@assume_db:5432/assume"
+
+  # to run the simulation distributed with MQTT
+  mqtt-broker:
+    container_name: mqtt-broker
+    image: eclipse-mosquitto:2
+    restart: always
+    profiles: ["mqtt"]
+    ports:
+      - "1883:1883/tcp"
+    volumes:
+      - ./docker_configs/mqtt.conf:/mosquitto/config/mosquitto.conf
+    healthcheck:
+      test: "mosquitto_sub -t '$$SYS/#' -C 1 | grep -v Error || exit 1"
+      interval: 45s
+      timeout: 5s
+      retries: 5
+
+  # to run a distributed simulation with docker compose
+  simulation_mgr:
+    container_name: simulation_mgr
+    image: ghcr.io/assume-framework/assume:latest
+    profiles: ["mqtt"]
+    depends_on:
+      - assume_db
+      - mqtt-broker
+    environment:
+      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
+      MQTT_BROKER: mqtt-broker
+    volumes:
+      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
+    entrypoint: python3 -m examples.distributed_simulation.world_manager agent agent2
+
+  simulation_client01:
+    container_name: simulation_client01
+    image: ghcr.io/assume-framework/assume:latest
+    profiles: ["mqtt"]
+    build: .
+    environment:
+      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
+      MQTT_BROKER: mqtt-broker
+    depends_on:
+      - assume_db
+      - mqtt-broker
+    volumes:
+      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
+    entrypoint: python3 -m examples.distributed_simulation.world_agent 0 2 agent
+
+  simulation_client02:
+    container_name: simulation_client02
+    image: ghcr.io/assume-framework/assume:latest
+    profiles: ["mqtt"]
+    build: .
+    environment:
+      DB_URI: "postgresql://assume:assume@assume_db:5432/assume"
+      MQTT_BROKER: mqtt-broker
+    depends_on:
+      - assume_db
+      - mqtt-broker
+    volumes:
+      - ./examples/distributed_simulation/config.py:/src/examples/distributed_simulation/config.py
+    entrypoint: python3 -m examples.distributed_simulation.world_agent 1 2 agent2
