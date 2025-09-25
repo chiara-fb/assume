@@ -29,7 +29,6 @@ from assume.strategies.dmas_storage import DmasStorageStrategy
 from assume.strategies.portfolio_strategies import CournotStrategy
 from assume.strategies.iterative_strategies import ErevRothStrategy
 
-#TODO: add mitigated bidding orders
 bidding_strategies: dict[str, BaseStrategy] = {
     "naive_eom": NaiveSingleBidStrategy,
     "naive_dam": NaiveProfileStrategy,
@@ -65,11 +64,14 @@ try:
         StorageRLStrategy,
         RenewableRLStrategy,
     )
-
+    ### ADDED NEW STRATEGY! ###
+    from assume.strategies.portfolio_strategies import PortfolioRLStrategy
+    
     bidding_strategies["pp_learning"] = RLStrategy
     bidding_strategies["pp_learning_single_bid"] = RLStrategySingleBid
     bidding_strategies["storage_learning"] = StorageRLStrategy
     bidding_strategies["renewable_eom_learning"] = RenewableRLStrategy
+    bidding_strategies["portfolio_learning"] = PortfolioRLStrategy
 
 except ImportError:
     pass

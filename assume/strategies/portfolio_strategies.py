@@ -4,13 +4,19 @@
 from assume.common.base import BaseStrategy, SupportsMinMax
 from assume.common.market_objects import MarketConfig, Order, Orderbook, Product
 from assume.strategies.naive_strategies import NaiveSingleBidStrategy
-from assume.strategies.learning_strategies import BaseLearningStrategy
 from datetime import datetime, timedelta
 from collections import defaultdict
 from assume.common.fast_pandas import FastSeries, TensorFastSeries
 from assume.common.forecasts import Forecaster
 import numpy as np
-import torch as th
+
+# this is for users that install ASSUME without learning strategy and related dependencies
+try: 
+    import torch as th
+    from assume.strategies.learning_strategies import BaseLearningStrategy
+
+except ImportError: 
+    pass
 
 # had to change type hint to avoid circular import
 from typing import TYPE_CHECKING
@@ -140,7 +146,6 @@ class CournotStrategy(BasePortfolioStrategy):
 
 
 class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
-#class RLStrategy(BaseLearningStrategy):
     """
     Reinforcement Learning Strategy that enables the agent to learn optimal bidding strategies for
     the portfolio of a units operator on an Energy-Only Market.
@@ -389,7 +394,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
 
     def get_individual_observations(
-        self, units_operator: UnitsOperator, start: datetime, end: datetime
+        self, units_operator: "UnitsOperator", start: datetime, end: datetime
     ):
         """
         Retrieves the observations specific to the units_operator. 
