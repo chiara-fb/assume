@@ -25,7 +25,6 @@ from assume.strategies.naive_strategies import (
 from assume.strategies.manual_strategies import SimpleManualTerminalStrategy
 from assume.strategies.dmas_powerplant import DmasPowerplantStrategy
 from assume.strategies.dmas_storage import DmasStorageStrategy
-### ADDED NEW STRATEGIES! ###
 from assume.strategies.portfolio_strategies import CournotStrategy
 from assume.strategies.iterative_strategies import ErevRothStrategy
 
@@ -64,7 +63,6 @@ try:
         StorageRLStrategy,
         RenewableRLStrategy,
     )
-    ### ADDED NEW STRATEGY! ###
     from assume.strategies.portfolio_strategies import PortfolioRLStrategy
     
     bidding_strategies["pp_learning"] = RLStrategy

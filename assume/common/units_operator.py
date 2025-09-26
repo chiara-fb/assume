@@ -40,8 +40,7 @@ class UnitsOperator(Role):
         available_markets (list[MarketConfig]): The available markets.
         registered_markets (dict[str, MarketConfig]): The registered markets.
         last_sent_dispatch (int): The last sent dispatch.
-        use_portfolio_opt (bool): Whether to use portfolio optimization.
-        portfolio_strategy (BaseStrategy): The portfolio strategy.
+        portfolio_strategies (dict[str, BaseStrategy], optional): The portfolio strategy.
         valid_orders (defaultdict): The valid orders.
         units (dict[str, BaseUnit]): The units.
         id (str): The id of the agent.
@@ -49,13 +48,13 @@ class UnitsOperator(Role):
 
     Args:
         available_markets (list[MarketConfig]): The available markets.
-        opt_portfolio (tuple[bool, BaseStrategy] | None, optional): Optimized portfolio strategy. Defaults to None.
+        portfolio_strategies (dict[str, BaseStrategy], optional): Optimized portfolio strategy. Defaults to an empty dict.
     """
 
     def __init__(
         self,
         available_markets: list[MarketConfig],
-        opt_portfolio: tuple[bool, BaseStrategy] | None = None,
+        portfolio_strategies: dict[str, BaseStrategy] = {},
     ):
         super().__init__()
 
@@ -63,12 +62,7 @@ class UnitsOperator(Role):
         self.registered_markets: dict[str, MarketConfig] = {}
         self.last_sent_dispatch = defaultdict(lambda: 0)
 
-        if opt_portfolio is None:
-            self.use_portfolio_opt = False
-            self.portfolio_strategy = None
-        else:
-            self.use_portfolio_opt = opt_portfolio[0]
-            self.portfolio_strategy = opt_portfolio[1]
+        self.portfolio_strategies = portfolio_strategies
 
         # valid_orders per product_type
         self.valid_orders = defaultdict(list)
@@ -444,8 +438,6 @@ class UnitsOperator(Role):
             opening (OpeningMessage): The opening message.
             meta (MetaDict): The meta data of the market.
 
-        Note:
-            This function will accommodate the portfolio optimization in the future.
         """
 
         products = opening["products"]
@@ -457,10 +449,12 @@ class UnitsOperator(Role):
         # [whole_next_hour, quarter1, quarter2, quarter3, quarter4]
         # algorithm should buy as much baseload as possible, then add up with quarters
         products.sort(key=lambda p: (p[0] - p[1], p[0]))
-        if self.use_portfolio_opt:
-            orderbook = await self.formulate_bids_portfolio(
+        if self.portfolio_strategies.get(market):
+            strategy = self.portfolio_strategies.get(market)
+            orderbook = strategy.calculate_bids(
                 market=market,
                 products=products,
+                units=self.units.items()
             )
         else:
             orderbook = await self.formulate_bids(
@@ -502,7 +496,8 @@ class UnitsOperator(Role):
             OrderBook: The orderbook that is submitted as a bid to the market.
         """
         orderbook: Orderbook = []
-        product_bids = self.portfolio_strategy.calculate_bids(self, market, products)
+        portfolio_strategy = self.portfolio_strategies[market.market_id]
+        product_bids = portfolio_strategy.calculate_bids(self, market, products)
 
         for i, order in enumerate(product_bids):
             order["agent_addr"] = self.context.addr

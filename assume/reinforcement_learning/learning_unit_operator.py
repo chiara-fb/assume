@@ -25,9 +25,9 @@ class RLUnitsOperator(UnitsOperator):
     def __init__(
         self,
         available_markets: list[MarketConfig],
-        opt_portfolio: tuple[bool, BaseStrategy] | None = None,
+        portfolio_strategies: dict[str, BaseStrategy] = {},
     ):
-        super().__init__(available_markets, opt_portfolio)
+        super().__init__(available_markets, portfolio_strategies)
 
         self.rl_units = []
         self.learning_strategies = {
@@ -36,14 +36,14 @@ class RLUnitsOperator(UnitsOperator):
             "device": "cpu",
         }
         
-        self.rl_operator = True if isinstance(self.portfolio_strategy, LearningStrategy) else False
-        
-        if self.rl_operator:
-            self.learning_strategies = {
-            "obs_dim": self.portfolio_strategy.obs_dim,
-            "act_dim": self.portfolio_strategy.act_dim,
-            "device": self.portfolio_strategy.device,
-        }
+        #TODO: this will overwrite RL agent if sequential markets
+        for market_id, portfolio_strategy in portfolio_strategies.items():
+            if isinstance(portfolio_strategy, LearningStrategy):  
+                self.learning_strategies = {
+                "obs_dim": self.portfolio_strategy.obs_dim,
+                "act_dim": self.portfolio_strategy.act_dim,
+                "device": self.portfolio_strategy.device,
+            }
         
 
     def on_ready(self):
@@ -77,7 +77,8 @@ class RLUnitsOperator(UnitsOperator):
             strategy = unit.bidding_strategies.get(market.market_id)
 
             if isinstance(strategy, LearningStrategy):
-                if self.rl_operator:
+                portfolio_strategy = self.portfolio_strategies.get(market.market_id)
+                if isinstance(portfolio_strategy, LearningStrategy):
                     raise TypeError("Cannot have a RL-strategy both for the unit and for the portfolio.")
                 
                 self.learning_strategies.update(
@@ -100,7 +101,6 @@ class RLUnitsOperator(UnitsOperator):
         """
 
         # assumes only one market (for now)
-        market_id = self.available_markets[0].market_id
         max_power_by_technology = self.portfolio_strategy.tot_capacity(self)
         self.technology_max_power = {tec: max_power_by_technology.get(tec, 0) for tec in self.technology}
         
@@ -136,7 +136,9 @@ class RLUnitsOperator(UnitsOperator):
 
         # should write learning results if at least one bidding_strategy is a learning strategy
         # or if the portfolio strategy is a learning strategy
-        if not ((len(self.rl_units) or self.rl_operator) and orderbook):
+        portfolio_strategy = self.portfolio_strategies[market_id]
+        learning_agent = len(self.rl_units) > 0 or isinstance(portfolio_strategy, LearningStrategy)
+        if not (learning_agent and orderbook):
             return
 
         output_agent_list = []
@@ -310,9 +312,21 @@ class RLUnitsOperator(UnitsOperator):
 
         Returns:
             OrderBook: The orderbook that is submitted as a bid to the market.
-
         """
-        orderbook = super().formulate_bids_portfolio(market, products)
-        print(orderbook)
+        orderbook: Orderbook = []
+        portfolio_strategy = self.portfolio_strategies[market.market_id]
+        product_bids = portfolio_strategy.calculate_bids(self, market, products)
+
+        for i, order in enumerate(product_bids):
+            order["agent_addr"] = self.context.addr
+            if market.volume_tick:
+                order["volume"] = round(order["volume"] / market.volume_tick)
+            if market.price_tick:
+                order["price"] = round(order["price"] / market.price_tick)
+            if "bid_id" not in order.keys() or order["bid_id"] is None:
+                order["bid_id"] = f"{self.id}_{order["unit_id"]}"
+            
+            orderbook.append(order)
+            
         # Convert all CUDA tensors to CPU in one pass
         return convert_tensors(orderbook)

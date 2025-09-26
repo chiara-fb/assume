@@ -10,8 +10,6 @@ from .simple import PayAsBidRole, PayAsClearRole
 from .complex_clearing import ComplexClearingRole
 from .complex_clearing_dmas import ComplexDmasClearingRole
 
-#TODO: add mitigated clearing mechanisms
-
 clearing_mechanisms: dict[str, MarketRole] = {
     "pay_as_clear": PayAsClearRole,
     "pay_as_bid": PayAsBidRole,

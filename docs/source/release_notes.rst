@@ -12,6 +12,11 @@ Upcoming Release
   The features in this section are not released yet, but will be part of the next release! To use the features already you have to install the main branch,
   e.g. ``pip install git+https://github.com/assume-framework/assume``
 
+  **Bug Fixes:**
+
+- **Changed action clamping**: The action clamping was changed to extreme values defined by dicts. Instead of using the min and max of a forward pass in the NN, the clamping is now based on the activation function of the actor network. Previously, the output range was incorrectly assumed based only on the input, which failed when weights were negative due to Xavier initialization.
+
+
 0.5.5 - (13th August 2025)
 =======================
 
@@ -28,6 +33,7 @@ Upcoming Release
 - **Add JOSS paper**
 - **Pin pip-tools to fix the docker build**
 - **Additional learning strategy for renewables**: Introduced a new learning strategy specifically designed for renewable energy sources. Most of the functionalities can just be inherited, we chose to add the availability of the unit into the individual observations and calculate the opportunity costs based on the available generation as well.
+- **Actor Output Clamping:** The action outputs of the actor neural network + noise are now always clamped to the valid output range, which is dynamically determined based on the actor architecture and its activation function. This prevents exploration noise from pushing actions outside the achievable output space of the actor, ensuring that bids remain within the intended limits.
 
 0.5.4 - (9th July 2025)
 =======================
