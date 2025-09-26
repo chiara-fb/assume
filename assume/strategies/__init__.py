@@ -27,8 +27,12 @@ from assume.strategies.dmas_powerplant import DmasPowerplantStrategy
 from assume.strategies.dmas_storage import DmasStorageStrategy
 from assume.strategies.portfolio_strategies import CournotStrategy
 from assume.strategies.iterative_strategies import ErevRothStrategy
+from assume.strategies.portfolio_strategies import (
+    BasePortfolioStrategy,
+    SimplePortfolioStrategy,
+)
 
-bidding_strategies: dict[str, BaseStrategy] = {
+bidding_strategies: dict[str, type[BaseStrategy | BasePortfolioStrategy]] = {
     "naive_eom": NaiveSingleBidStrategy,
     "naive_dam": NaiveProfileStrategy,
     "naive_pos_reserve": NaiveSingleBidStrategy,
@@ -52,8 +56,9 @@ bidding_strategies: dict[str, BaseStrategy] = {
     "manual_strategy": SimpleManualTerminalStrategy,
     "dmas_powerplant": DmasPowerplantStrategy,
     "dmas_storage": DmasStorageStrategy,
-    "cournot": CournotStrategy,
+    "cournot_portfolio": CournotStrategy,
     "erev_roth": ErevRothStrategy,
+    "simple_portfolio": SimplePortfolioStrategy,
 }
 
 try:

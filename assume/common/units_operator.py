@@ -449,12 +449,13 @@ class UnitsOperator(Role):
         # [whole_next_hour, quarter1, quarter2, quarter3, quarter4]
         # algorithm should buy as much baseload as possible, then add up with quarters
         products.sort(key=lambda p: (p[0] - p[1], p[0]))
-        if self.portfolio_strategies.get(market):
-            strategy = self.portfolio_strategies.get(market)
+        if self.portfolio_strategies.get(opening["market_id"]):
+            market = self.registered_markets[opening["market_id"]]
+            strategy = self.portfolio_strategies.get(opening["market_id"])
             orderbook = strategy.calculate_bids(
-                market=market,
-                products=products,
-                units=self.units.items()
+                operator=self,
+                market_config=market,
+                product_tuples=products,
             )
         else:
             orderbook = await self.formulate_bids(
@@ -497,7 +498,9 @@ class UnitsOperator(Role):
         """
         orderbook: Orderbook = []
         portfolio_strategy = self.portfolio_strategies[market.market_id]
-        product_bids = portfolio_strategy.calculate_bids(self, market, products)
+        product_bids = portfolio_strategy.calculate_bids(operator=self, 
+                                                         market_config=market, 
+                                                         product_tuples=products)
 
         for i, order in enumerate(product_bids):
             order["agent_addr"] = self.context.addr
@@ -530,7 +533,7 @@ class UnitsOperator(Role):
 
         for unit_id, unit in self.units.items():
             product_bids = unit.calculate_bids(
-                market,
+                market_config=market,
                 product_tuples=products,
             )
             for i, order in enumerate(product_bids):
