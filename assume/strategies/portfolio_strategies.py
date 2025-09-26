@@ -5,9 +5,6 @@ from assume.common.base import BaseStrategy, SupportsMinMax
 from assume.common.market_objects import MarketConfig, Order, Orderbook, Product
 from assume.strategies.naive_strategies import NaiveSingleBidStrategy
 from datetime import datetime, timedelta
-from collections import defaultdict
-from assume.common.fast_pandas import FastSeries, TensorFastSeries
-from assume.common.forecasts import Forecaster
 import numpy as np
 
 # this is for users that install ASSUME without learning strategy and related dependencies
@@ -55,42 +52,6 @@ class BasePortfolioStrategy(BaseStrategy):
                 tot_capacity[market_id][unit.technology] = tot_capacity[market_id].get(unit.technology, 0) + unit.max_power
         
         return tot_capacity
-
-
-    def init_learning(self, units_operator: "UnitsOperator", market_config: MarketConfig):
-        """
-        If the portfolio strategy of the units operator in a market is a learning strategy,
-        add required features to the units operator (forecaster, outputs dictionary, installed
-        capacity by technology).
-        
-        Args: 
-            units_operator (UnitsOperator): The operator that bids on the market.
-            market_config (MarketConfig): The configuration of the market. 
-
-        Returns: None
-        """
-
-        max_power_by_technology = super().tot_capacity(units_operator)[market_config.market_id]
-        units_operator.technology_max_power = {tec: max_power_by_technology.get(tec, 0) for tec in self.technology}
-
-        for unit in units_operator.units.values():
-            if hasattr(unit, "forecaster"):
-                units_operator.forecaster = unit.forecaster
-                break
-
-        units_operator.outputs = defaultdict(lambda: FastSeries(value=0.0, index=self.index))
-        
-        units_operator.outputs["actions"] = TensorFastSeries(value=0.0, index=self.index)
-        units_operator.outputs["exploration_noise"] = TensorFastSeries(
-            value=0.0,
-            index=self.index,
-        )
-        units_operator.outputs["reward"] = FastSeries(value=0.0, index=self.index)
-        # RL data stored as lists to simplify storing to the buffer
-        units_operator.outputs["rl_observations"] = []
-        units_operator.outputs["rl_actions"] = []
-        units_operator.outputs["rl_rewards"] = []    
-
 
 
 class CournotStrategy(BasePortfolioStrategy): 
@@ -185,6 +146,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         Number of time steps for which the agent forecasts market conditions. Defaults to 24.
     max_bid_price : float
         Maximum allowable bid price. Defaults to 100.
+    min_bid_price : float
+        Maximum allowable bid price. Defaults to  -100.
     max_demand : float
         Maximum demand capacity of the unit. Defaults to 10e3.
     device : str
@@ -213,9 +176,11 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
     """
 
     def __init__(self, *args, **kwargs):
+
         obs_dim = kwargs.pop("obs_dim", 54) # 36 shared observations + 18 unique_observations  
         act_dim = kwargs.pop("act_dim", 12)
         unique_obs_dim = kwargs.pop("unique_obs_dim", 18) # min and max power 
+        kwargs["unit_id"] = 'rl_operator'
         super().__init__(
             obs_dim=obs_dim,
             act_dim=act_dim,
@@ -273,7 +238,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         # assign forecaster, outputs dict and technology_max_power dict to units_operator
         if not hasattr(units_operator, 'technology_max_power'):
-            self.init_learning(units_operator, market_config)
+            print("at least till here!")
+            units_operator.init_portfolio_learning()
         
         # =============================================================================
         # 1. Get the Observations, which are the basis of the action decision
@@ -302,7 +268,9 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         denormalize = lambda q, m, M: ((q + 1) / 2) * (M - m) + m
         bid_quantity = [denormalize(q, m, M) for q, m, M in zip(scaled_quantity, min_power, max_power)]
         
-        bid_prices = actions[self.technology_dim:].numpy() * self.max_bid_price
+        scaled_prices = actions[self.technology_dim:].numpy()
+        bid_prices = denormalize(scaled_prices, self.min_price, self.max_price)
+        # bid_prices = actions[self.technology_dim:].numpy() * self.max_bid_price
 
         # actually formulate bids in orderbook format
         start_units = {tec: [] for tec in self.technology_type}
@@ -333,7 +301,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     # min() for partial bid if avail capacity is greater than bid_quantity left
                     "volume": min(unit_tuple[1], bid_quantity[tec]),
                     "unit_id": unit_tuple[0],
-                    "bid_id": f"{units_operator.id}_{unit_tuple[0]}",
+                    "bid_id": f"{units_operator.id}_{unit_tuple[0]}", # units_operator.id_unit.id
                     "node": units_operator.units[unit_tuple[0]].node,
                     })
                     bid_quantity[tec] -= unit_tuple[1] 

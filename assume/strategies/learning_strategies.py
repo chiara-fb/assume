@@ -30,6 +30,7 @@ class BaseLearningStrategy(LearningStrategy):
         self.unit_id = kwargs["unit_id"]
 
         # defines bounds of actions space
+        self.min_bid_price = kwargs.get("min_bid_price", -100)
         self.max_bid_price = kwargs.get("max_bid_price", 100)
 
         # tells us whether we are training the agents or just executing per-learning strategies

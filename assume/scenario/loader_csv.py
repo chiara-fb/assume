@@ -617,6 +617,7 @@ def setup_world(
     """
     # make a deep copy of the scenario data to avoid changing the original data
     scenario_data = copy.deepcopy(world.scenario_data)
+    #TODO: when reading units, add portfolio strategy and 
 
     simulation_id = scenario_data["simulation_id"]
     config = scenario_data["config"]

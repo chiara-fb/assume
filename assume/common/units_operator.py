@@ -500,13 +500,10 @@ class UnitsOperator(Role):
 
         Returns:
             OrderBook: The orderbook that is submitted as a bid to the market.
-
-        Note:
-            Placeholder for future portfolio optimization.
         """
         orderbook: Orderbook = []
         product_bids = self.portfolio_strategy.calculate_bids(self, market, products)
-        
+
         for i, order in enumerate(product_bids):
             order["agent_addr"] = self.context.addr
             if market.volume_tick:

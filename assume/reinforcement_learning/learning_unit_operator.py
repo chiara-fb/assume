@@ -13,8 +13,10 @@ from assume.common.market_objects import (
     Orderbook,
 )
 from assume.common.utils import convert_tensors, create_rrule, get_products_index
+from assume.common.fast_pandas import TensorFastSeries, FastSeries
 from assume.strategies import BaseStrategy, LearningStrategy
 from assume.units import BaseUnit
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,16 @@ class RLUnitsOperator(UnitsOperator):
             "act_dim": 0,
             "device": "cpu",
         }
+        
+        self.rl_operator = True if isinstance(self.portfolio_strategy, LearningStrategy) else False
+        
+        if self.rl_operator:
+            self.learning_strategies = {
+            "obs_dim": self.portfolio_strategy.obs_dim,
+            "act_dim": self.portfolio_strategy.act_dim,
+            "device": self.portfolio_strategy.device,
+        }
+        
 
     def on_ready(self):
         super().on_ready()
@@ -65,6 +77,9 @@ class RLUnitsOperator(UnitsOperator):
             strategy = unit.bidding_strategies.get(market.market_id)
 
             if isinstance(strategy, LearningStrategy):
+                if self.rl_operator:
+                    raise TypeError("Cannot have a RL-strategy both for the unit and for the portfolio.")
+                
                 self.learning_strategies.update(
                     {
                         "obs_dim": strategy.obs_dim,
@@ -75,6 +90,38 @@ class RLUnitsOperator(UnitsOperator):
 
                 self.rl_units.append(unit)
                 break
+
+    
+    def init_portfolio_learning(self):
+        """
+        If the portfolio strategy of the units operator in a market is a learning strategy,
+        add required features to the units operator (forecaster, outputs dictionary, installed
+        capacity by technology).
+        """
+
+        # assumes only one market (for now)
+        market_id = self.available_markets[0].market_id
+        max_power_by_technology = self.portfolio_strategy.tot_capacity(self)
+        self.technology_max_power = {tec: max_power_by_technology.get(tec, 0) for tec in self.technology}
+        
+        for unit in self.units.values():
+            if hasattr(unit, "forecaster"):
+                self.forecaster = unit.forecaster
+                break
+
+        self.outputs = defaultdict(lambda: FastSeries(value=0.0, index=self.index))
+        
+        self.outputs["actions"] = TensorFastSeries(value=0.0, index=self.index)
+        self.outputs["exploration_noise"] = TensorFastSeries(
+            value=0.0,
+            index=self.index,
+        )
+        self.outputs["reward"] = FastSeries(value=0.0, index=self.index)
+        # RL data stored as lists to simplify storing to the buffer
+        self.outputs["rl_observations"] = []
+        self.outputs["rl_actions"] = []
+        self.outputs["rl_rewards"] = []   
+
 
     def write_learning_to_output(self, orderbook: Orderbook, market_id: str) -> None:
         """
@@ -88,7 +135,8 @@ class RLUnitsOperator(UnitsOperator):
         products_index = get_products_index(orderbook)
 
         # should write learning results if at least one bidding_strategy is a learning strategy
-        if not (len(self.rl_units) and orderbook):
+        # or if the portfolio strategy is a learning strategy
+        if not ((len(self.rl_units) or self.rl_operator) and orderbook):
             return
 
         output_agent_list = []
@@ -245,5 +293,26 @@ class RLUnitsOperator(UnitsOperator):
                 order["unit_id"] = unit_id
                 orderbook.append(order)
 
+        # Convert all CUDA tensors to CPU in one pass
+        return convert_tensors(orderbook)
+    
+
+
+    async def formulate_bids_portfolio(
+        self, market: MarketConfig, products: list[tuple]
+    ) -> Orderbook:
+        """
+        Formulates the bid to the market according to the bidding strategy of the unit operator.
+
+        Args:
+            market (MarketConfig): The market to formulate bids for.
+            products (list[tuple]): The products to formulate bids for.
+
+        Returns:
+            OrderBook: The orderbook that is submitted as a bid to the market.
+
+        """
+        orderbook = super().formulate_bids_portfolio(market, products)
+        print(orderbook)
         # Convert all CUDA tensors to CPU in one pass
         return convert_tensors(orderbook)
