@@ -47,7 +47,9 @@ class Learning(Role):
         self.actor_architecture = learning_config.get("actor_architecture", "mlp")
         self.critics = {}
         self.target_critics = {}
-
+        
+        # this defines the type of reinforcement learning agent (unit or units_operator)
+        self.bidder_type = learning_config.get("bidder_type", "unit")
         # define whether we train model or evaluate it
         self.training_episodes = learning_config["training_episodes"]
         self.learning_mode = learning_config["learning_mode"]
@@ -414,7 +416,7 @@ class Learning(Role):
         db_uri: str,
         output_agent_addr: str,
         train_start: str,
-        freq: str,
+        freq: str
     ):
         """
         Initialize the logging for the reinforcement learning agent.
@@ -438,6 +440,7 @@ class Learning(Role):
             episode=episode,
             eval_episode=eval_episode,
             episodes_collecting_initial_experience=self.episodes_collecting_initial_experience,
+            bidder_type=self.bidder_type,
         )
 
         # Parameters required for sending data to the output role

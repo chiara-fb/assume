@@ -13,9 +13,9 @@ from assume.common.market_objects import (
     Orderbook,
 )
 from assume.common.utils import convert_tensors, create_rrule, get_products_index
-from assume.common.fast_pandas import TensorFastSeries, FastSeries
 from assume.strategies import BaseStrategy, LearningStrategy
 from assume.units import BaseUnit
+from assume.common.fast_pandas import TensorFastSeries, FastSeries
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -29,21 +29,13 @@ class RLUnitsOperator(UnitsOperator):
     ):
         super().__init__(available_markets, portfolio_strategies)
 
-        self.rl_units = []
+        self.rl_bidders = []
         self.learning_strategies = {
             "obs_dim": 0,
             "act_dim": 0,
             "device": "cpu",
         }
-        
-        #TODO: this will overwrite RL agent if sequential markets
-        for market_id, portfolio_strategy in portfolio_strategies.items():
-            if isinstance(portfolio_strategy, LearningStrategy):  
-                self.learning_strategies = {
-                "obs_dim": self.portfolio_strategy.obs_dim,
-                "act_dim": self.portfolio_strategy.act_dim,
-                "device": self.portfolio_strategy.device,
-            }
+
         
 
     def on_ready(self):
@@ -72,55 +64,36 @@ class RLUnitsOperator(UnitsOperator):
         """
         self.units[unit.id] = unit
 
-        # check if unit has learning strategy for any of the available markets
+        # check if unit or operator have a learning strategy for any of the available markets
+        # bidder_type stores type of learning bidder: either unit or unit_operator
+        # rl_bidders stores the rl_bidders (either one operator or multiple units)
+        self.bidder_type = "unit"
         for market in self.available_markets:
-            strategy = unit.bidding_strategies.get(market.market_id)
+            portfolio_strategy = self.portfolio_strategies.get(market.market_id)
+            bidding_strategy = unit.bidding_strategies.get(market.market_id)
 
-            if isinstance(strategy, LearningStrategy):
-                portfolio_strategy = self.portfolio_strategies.get(market.market_id)
-                if isinstance(portfolio_strategy, LearningStrategy):
-                    raise TypeError("Cannot have a RL-strategy both for the unit and for the portfolio.")
+            if isinstance(portfolio_strategy, LearningStrategy):
+                strategy = portfolio_strategy
+                self.bidder_type = "units_operator"
+                self.rl_bidders.append(self)
+                # equips operator with forecaster, outputs and installed market capacity
+                self.init_portfolio_learning(market.market_id)
                 
-                self.learning_strategies.update(
-                    {
-                        "obs_dim": strategy.obs_dim,
-                        "act_dim": strategy.act_dim,
-                        "device": strategy.device,
-                    }
-                )
+            elif isinstance(strategy, LearningStrategy):
+                strategy = bidding_strategy
+                self.bidder_type = "unit"
+                self.rl_bidders.append(unit)
 
-                self.rl_units.append(unit)
-                break
-
-    
-    def init_portfolio_learning(self):
-        """
-        If the portfolio strategy of the units operator in a market is a learning strategy,
-        add required features to the units operator (forecaster, outputs dictionary, installed
-        capacity by technology).
-        """
-
-        # assumes only one market (for now)
-        max_power_by_technology = self.portfolio_strategy.tot_capacity(self)
-        self.technology_max_power = {tec: max_power_by_technology.get(tec, 0) for tec in self.technology}
-        
-        for unit in self.units.values():
-            if hasattr(unit, "forecaster"):
-                self.forecaster = unit.forecaster
-                break
-
-        self.outputs = defaultdict(lambda: FastSeries(value=0.0, index=self.index))
-        
-        self.outputs["actions"] = TensorFastSeries(value=0.0, index=self.index)
-        self.outputs["exploration_noise"] = TensorFastSeries(
-            value=0.0,
-            index=self.index,
-        )
-        self.outputs["reward"] = FastSeries(value=0.0, index=self.index)
-        # RL data stored as lists to simplify storing to the buffer
-        self.outputs["rl_observations"] = []
-        self.outputs["rl_actions"] = []
-        self.outputs["rl_rewards"] = []   
+            else:
+                continue
+                
+            self.learning_strategies.update(
+                {
+                    "obs_dim": strategy.obs_dim,
+                    "act_dim": strategy.act_dim,
+                    "device": strategy.device,
+                }
+            )
 
 
     def write_learning_to_output(self, orderbook: Orderbook, market_id: str) -> None:
@@ -136,34 +109,39 @@ class RLUnitsOperator(UnitsOperator):
 
         # should write learning results if at least one bidding_strategy is a learning strategy
         # or if the portfolio strategy is a learning strategy
-        portfolio_strategy = self.portfolio_strategies[market_id]
-        learning_agent = len(self.rl_units) > 0 or isinstance(portfolio_strategy, LearningStrategy)
-        if not (learning_agent and orderbook):
+        
+        if not (len(self.rl_bidders) > 0 and orderbook):
             return
 
         output_agent_list = []
         start = products_index[0]
 
-        for unit in self.rl_units:
-            strategy = unit.bidding_strategies.get(market_id)
+        for bidder in self.rl_bidders:
+            strategies = getattr(bidder, 
+                                 "bidding_strategies" if self.bidder_type == "unit" 
+                                 else "portfolio_strategies")
+            
+            strategy = strategies.get(market_id)
 
             # rl only for energy market for now!
             if isinstance(strategy, LearningStrategy):
                 output_dict = {
                     "datetime": start,
-                    "unit": unit.id,
+                    self.bidder_type: bidder.id,
                 }
 
                 output_dict.update(
                     {
-                        "profit": unit.outputs["profit"].at[start],
-                        "reward": unit.outputs["reward"].at[start],
-                        "regret": unit.outputs["regret"].at[start],
+                        "profit": bidder.outputs["profit"].at[start],
+                        "reward": bidder.outputs["reward"].at[start],
                     }
                 )
 
-                action_tuple = unit.outputs["actions"].at[start]
-                noise_tuple = unit.outputs["exploration_noise"].at[start]
+                if "regret" in bidder.outputs:
+                    output_dict.update({"regret": bidder.outputs["regret"].at[start]})
+
+                action_tuple = bidder.outputs["actions"].at[start]
+                noise_tuple = bidder.outputs["exploration_noise"].at[start]
                 action_dim = action_tuple.numel()
 
                 for i in range(action_dim):
@@ -191,19 +169,19 @@ class RLUnitsOperator(UnitsOperator):
         Writes learning results to the learning agent.
 
         """
-        if len(self.rl_units) == 0:
+        if len(self.rl_bidders) == 0:
             return
 
         obs_dim = self.learning_strategies["obs_dim"]
         act_dim = self.learning_strategies["act_dim"]
         device = self.learning_strategies["device"]
 
-        learning_unit_count = len(self.rl_units)
+        lr_bidders_count = len(self.rl_bidders)
 
         # Collect the number of reward values for each unit.
         # This represents how many complete transitions we have for each unit.
         # Using a set ensures we capture only unique lengths across all units.
-        values_len_set = {len(unit.outputs["rl_rewards"]) for unit in self.rl_units}
+        values_len_set = {len(bidder.outputs["rl_rewards"]) for bidder in self.rl_bidders}
 
         # Check if all units have the same number of reward values.
         # If the set contains more than one unique length, it means at least one unit
@@ -222,26 +200,26 @@ class RLUnitsOperator(UnitsOperator):
             return
 
         all_observations = th.zeros(
-            (values_len, learning_unit_count, obs_dim), device=device
+            (values_len, lr_bidders_count, obs_dim), device=device
         )
         all_actions = th.zeros(
-            (values_len, learning_unit_count, act_dim), device=device
+            (values_len, lr_bidders_count, act_dim), device=device
         )
         all_rewards = []
 
         # Iterate through each RL unit and collect all of their observations, actions, and rewards
         # making it dependent on values_len ensures that data is not stored away for which the reward was not calculated yet
-        for i, unit in enumerate(self.rl_units):
+        for i, bidder in enumerate(self.rl_bidders):
             # Convert pandas Series to torch Tensor
-            obs_tensor = th.stack(unit.outputs["rl_observations"][:values_len], dim=0)
-            actions_tensor = th.stack(unit.outputs["rl_actions"][:values_len], dim=0)
+            obs_tensor = th.stack(bidder.outputs["rl_observations"][:values_len], dim=0)
+            actions_tensor = th.stack(bidder.outputs["rl_actions"][:values_len], dim=0)
 
             all_observations[:, i, :] = obs_tensor
             all_actions[:, i, :] = actions_tensor
-            all_rewards.append(unit.outputs["rl_rewards"])
+            all_rewards.append(bidder.outputs["rl_rewards"])
 
             # reset the outputs
-            unit.reset_saved_rl_data()
+            bidder.reset_saved_rl_data()
 
         all_observations = all_observations.numpy(force=True)
         all_actions = all_actions.numpy(force=True)
@@ -324,9 +302,39 @@ class RLUnitsOperator(UnitsOperator):
             if market.price_tick:
                 order["price"] = round(order["price"] / market.price_tick)
             if "bid_id" not in order.keys() or order["bid_id"] is None:
-                order["bid_id"] = f"{self.id}_{order["unit_id"]}"
+                order["bid_id"] = f"{self.id}_{i+1}"
             
             orderbook.append(order)
             
         # Convert all CUDA tensors to CPU in one pass
         return convert_tensors(orderbook)
+    
+
+    def init_portfolio_learning(self, market_id:str):
+        """
+        If the portfolio strategy of the units operator in a market is a learning strategy,
+        add required features to the units operator (forecaster, outputs dictionary, installed
+        capacity for the given market).
+        """
+        portfolio_strategy = self.portfolio_strategies[market_id]
+        tot_capacity = portfolio_strategy.calculate_tot_capacity(self)
+        self.installed_capacity = tot_capacity[market_id]
+
+        for unit in self.units.values():
+            if hasattr(unit, "forecaster"):
+                self.forecaster = unit.forecaster
+                break
+
+        self.outputs = defaultdict(lambda: FastSeries(value=0.0, index=unit.index))
+        
+        self.outputs["actions"] = TensorFastSeries(value=0.0, index=unit.index, name='actions')
+        self.outputs["exploration_noise"] = TensorFastSeries(
+            value=0.0,
+            index=unit.index,
+            name='exploration_noise',
+        )
+        self.outputs["reward"] = FastSeries(value=0.0, index=unit.index, name='reward')
+        # RL data stored as lists to simplify storing to the buffer
+        self.outputs["rl_observations"] = []
+        self.outputs["rl_actions"] = []
+        self.outputs["rl_rewards"] = []   

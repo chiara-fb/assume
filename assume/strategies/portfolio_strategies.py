@@ -56,25 +56,24 @@ class BasePortfolioStrategy:
         return []
 
     
-    def tot_capacity(
+    def calculate_tot_capacity(
             self,
             operator: "UnitsOperator", 
-    ) -> dict[str,dict[str,float]]:
+    ) -> dict[str,float]:
         """
-        Computes the total capacity of the units owned by a unit operator by market and technology. 
+        Computes the total capacity of the units owned by a unit operator by market.
         
         Args: 
             operator (UnitsOperator): The operator that bids on the market(s).
         Returns: 
-            dict: a nested dictionary indexed by market and by technology.
+            dict: a dictionary indexed by market_id.
         """
 
         tot_capacity = {}
 
         for unit in operator.units.values():
             for market_id in unit.bidding_strategies.keys():
-                tot_capacity[market_id] = tot_capacity.get(market_id, {})
-                tot_capacity[market_id][unit.technology] = tot_capacity[market_id].get(unit.technology, 0) + unit.max_power
+                tot_capacity[market_id] = tot_capacity.get(market_id, 0) + unit.max_power
 
         return tot_capacity
 
@@ -135,9 +134,7 @@ class CournotStrategy(BasePortfolioStrategy):
             Orderbook: The bids consisting of the start time, end time, only hours, price and volume.
         """
 
-        tot_power_by_technology = self.tot_capacity(operator)[market_config.market_id]
-        
-        tot_power = sum([tec_power for tec_power in tot_power_by_technology.values()])
+        tot_capacity = self.calculate_tot_capacity(operator)[market_config.market_id]
         #TODO: divide by total available capacity in the market 
 
         operator_bids = Orderbook()
@@ -151,7 +148,7 @@ class CournotStrategy(BasePortfolioStrategy):
             
             ### Apply Cournot mark-up ###
             for bid in bids:
-                bid["price"] += self.markup * tot_power
+                bid["price"] += self.markup * tot_capacity
                 bid["unit_id"] = unit_id
                 
                 operator_bids.append(bid)
@@ -182,9 +179,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         `total max capacity` are scaled by the total installed capacity of the technology for the units
         operator, while `average marginal cost` is scaled by the maximum bid price. 
 
-    Actions are formulated as 2 values (price, quantity) for each technology. Prices and quantity are zero 
-    if the technology is not in the portfolio of the units operator. Actions are denormalized from a range of [-1, 1] 
-    to real bid prices in the `calculate_bids` method, then translate into unit-specific bids.
+    Actions are formulated as 2 values (price, quantity) for each curve_split. Actions are rescaled from a range of 
+    [-1, 1] to real bid prices in the `calculate_bids` method, then translate into unit-specific bids.
 
     Rewards are based on profit from transactions, minus operational and opportunity costs. Key components include:
 
@@ -230,10 +226,13 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
     def __init__(self, *args, **kwargs):
 
-        obs_dim = kwargs.pop("obs_dim", 54) # 36 shared observations + 18 unique_observations  
-        act_dim = kwargs.pop("act_dim", 12)
-        unique_obs_dim = kwargs.pop("unique_obs_dim", 18) # min and max power 
+        obs_dim = kwargs.pop("obs_dim", 43) # 36 shared observations + 7 unique_observations  
+        act_dim = kwargs.pop("act_dim", 7) # bids and quantities for flexible generation, price for inflexible generation
+        unique_obs_dim = kwargs.pop("unique_obs_dim", 7) # tot inflexible generation, flexible gen quantiles and marginal cost quanties
+        self.curve_splits = act_dim // 2 # the number of (price, quantity) tuples to offer (default: 3)
+        
         kwargs["unit_id"] = 'rl_operator'
+        
         super().__init__(
             obs_dim=obs_dim,
             act_dim=act_dim,
@@ -250,9 +249,12 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         self.foresight = 12
 
         # define allowed order types
-        self.technology_type = ["combined cycle gas turbine", "hard coal", "lignite", "nuclear", "oil", "open cycle gas turbine"]
-        self.technology_dim = len(self.technology_type)
         self.order_types = kwargs.get("order_types", ["SB"])
+        # needed to scale actions and observations back and forth between [-1,1]
+        self.scale = lambda x, m, M: -1 + 2 * (x - m) / (M - m)
+        self.rescale = lambda x, m, M: ((x + 1) / 2) * (M - m) + m
+    
+    
 
 
     def calculate_bids(
@@ -279,19 +281,20 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         Notes
         -----
-        This method obtains actions as a tensor of quantities and bid prices for each technology, 
-        denormalize them to reflect real bid prices and volumes, which are then converted into
-        unit-specific bids by sorting the units of each technology type by their marginal cost, 
-        and bidding their maximum available capacity at the bid price defined by the action
-        tensor, until the total technology volume defined by the action tensor is satisfied.
+        This method obtains actions as a tensor of quantities and bid prices, where the first
+        bid is the price for inflex generation, the next self.curve_splits are bid quantities
+        for flex generation, followed by bid prices for flex generation. Unit-specific bids 
+        are submitted accordingly by sorting the units by their marginal cost, and bidding 
+        their inflex generation to the inflex bid price, the flex generation to the lowest 
+        curve_splits whose capacity is still not fully bid.
         """
 
         start = product_tuples[0][0]
         end = product_tuples[0][1]
 
         # assign forecaster, outputs dict and technology_max_power dict to units_operator
-        if not hasattr(operator, 'technology_max_power'):
-            operator.init_portfolio_learning()
+        if not hasattr(operator, 'installed_capacity'):
+            raise ValueError("Operator is not a RL-Operator.")
         
         # =============================================================================
         # 1. Get the Observations, which are the basis of the action decision
@@ -313,51 +316,81 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         # =============================================================================
         # actions are in the range [-1,1], we need to transform them into actual bids
         # we can use our domain knowledge to guide the bid formulation
-        scaled_quantity = actions[:self.technology_dim].numpy()
-
-        min_power = next_observation[-3* self.technology_dim : -2*self.technology_dim]
-        max_power = next_observation[-2* self.technology_dim : -self.technology_dim]
-        denormalize = lambda q, m, M: ((q + 1) / 2) * (M - m) + m
-        bid_quantity = [denormalize(q, m, M) for q, m, M in zip(scaled_quantity, min_power, max_power)]
         
-        scaled_prices = actions[self.technology_dim:].numpy()
-        bid_prices = denormalize(scaled_prices, self.min_price, self.max_price)
+        # first curve_splits actions are quantities
+        scaled_price_inflex = actions[0].item()
+        scaled_quant = actions[1:self.curve_splits+1].numpy()
+        scaled_price = actions[self.curve_splits+1:].numpy()
+        
+        bid_quant = self.rescale(scaled_quant, 0, operator.installed_capacity)
+        bid_price = self.rescale(scaled_price, self.min_bid_price, self.max_bid_price)
+        price_inflex = self.rescale(scaled_price_inflex, self.min_bid_price, self.max_bid_price)
+        # sorted is needed because we are not enforcing prices to be increasing
+        sorted_index = np.argsort(bid_price)
 
-        # actually formulate bids in orderbook format
-        start_units = {tec: [] for tec in self.technology_type}
+        units = {}
         bids = []
         
         for unit_id, unit in operator.units.items():
-            min_mw, max_mw = unit.calculate_min_max_power(start,end)
+            min_power, max_power = unit.calculate_min_max_power(start,end)
+            min_mw, max_mw = min_power[0], max_power[0]
             mc = unit.calculate_marginal_cost(start, max_mw)
-            # unit tuples of ID, max available capacity, marginal cost
-            start_units[unit_id.technology].append((unit_id, max_mw, mc))
+            # unit tuple of flex and inflex avail capacity, marginal cost
+            units[unit_id] = (min_mw, max_mw-min_mw, mc)
 
-        for tec, technology in enumerate(self.technology_type): 
-            #do not bid anything if there is no unit of that specific technology type
-            if len(start_units[technology]) == 0: 
-                continue
-            # sort unit tuples by by marginal cost
-            technology_units = sorted(start_units[technology], key=lambda x: x[-1])  
+        # sort unit tuples by by marginal cost
+        sorted_units = sorted(units, key=lambda x: x[-1]) 
 
-            for unit_tuple in technology_units:
-                # bid the maximum available capacity of units until bid_quantity is covered
-                # or there are no further units
-                if bid_quantity[tec] > 0:
+        for ix in range(self.curve_splits):
+            
+            # bid the maximum available capacity of units until bid_quantity is covered
+            # or there are no further units
+            for unit_id in sorted_units:
+                inflex_gen, flex_gen, mc = units.get(unit_id, (None,None,None))
+
+                #if the quantity is fully offered move to next curve split
+                if bid_quant[ix] == 0: 
+                    break
+                
+                # if unit capacity was fully used, move to next unit
+                elif mc is None:
+                    continue
+                
+                else: 
+                    volume = min(flex_gen, bid_quant[sorted_index[ix]])
+
+                    # we assume all units to bid their inflexible generation at the same price
+                    if inflex_gen > 0:
+                        bids.append({           
+                            "start_time": start,
+                            "end_time": end,
+                            "only_hours": None,
+                            "price": float(price_inflex),
+                            "volume": float(inflex_gen),
+                            "unit_id": unit_id,
+                            "bid_id": f"{operator.id}_{unit_id}_inflex", # units_operator.id_unit.id
+                            "node": operator.units[unit_id].node,
+                            })
+                    
                     bids.append({           
                     "start_time": start,
                     "end_time": end,
                     "only_hours": None,
-                    "price": bid_prices[tec],
+                    "price": float(bid_price[sorted_index[ix]]),
                     # min() for partial bid if avail capacity is greater than bid_quantity left
-                    "volume": min(unit_tuple[1], bid_quantity[tec]),
-                    "unit_id": unit_tuple[0],
-                    "bid_id": f"{operator.id}_{unit_tuple[0]}", # units_operator.id_unit.id
-                    "node": operator.units[unit_tuple[0]].node,
+                    "volume": float(volume),
+                    "unit_id": unit_id,
+                    "bid_id": f"{operator.id}_{unit_id}_{ix}", # units_operator.id_unit.id
+                    "node": operator.units[unit_id].node,
                     })
-                    bid_quantity[tec] -= unit_tuple[1] 
-                else:
-                    break            
+
+                    # if unit capacity was fully used, drop it; else, reduce its capacity
+                    if volume == flex_gen:
+                        units.pop(unit_id)
+                    else: 
+                        units[unit_id] = (0, flex_gen - bid_quant[ix], mc)
+                    
+                    bid_quant[ix] -= volume                     
 
         # store results in unit outputs as lists to be written to the buffer for learning
         operator.outputs["rl_observations"].append(next_observation)
@@ -382,13 +415,15 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         -------
         tuple of torch.Tensor
             A tuple containing: Actions to be taken (with or without noise). The noise component (if any), useful for diagnostics.
-            The action to be taken represent 6 volumes and 6 prices in the range [-1, 1], each stands for one technology type.
+            The action to be taken represent the price for inflex generation, and self.curve_splits bid volumes and prices for
+            flexible generation, scaled to the range [-1, 1].
 
         Notes
         -----
         During learning, exploratory noise is applied and already part of the curr_action unless in evaluation mode.
-        In initial exploration mode, price actions are sampled around the marginal cost and quantity actions around the 
-        max available capacity to explore its vicinity. We assume the final element of `next_observation` is the marginal cost.
+        In initial exploration mode, flex price and quantities actions are sampled around the respective quantiles, and inflex
+        price around zero to explore its vicinity. This assumes the last 2*self.curve_splits+1 elements of`next_observation`
+        have the following structure: [inflex_gen, flex_quant, flex_mc]
         """
 
         # Get the base action and associated noise from the parent implementation
@@ -396,66 +431,83 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         if self.learning_mode and not self.evaluation_mode:
             if self.collect_initial_experience_mode:
-                # Assumes last dimensions of the observation correspond to marginal costs
-                marginal_costs = next_observation[
-                    -self.technology_dim:
+                # Assumes last dimensions of the observation are the individual obs
+                individual_obs = next_observation[-2*self.curve_splits+1:]
+                marginal_cost = individual_obs[
+                    self.curve_splits+1:
                 ].detach()  # ensure no gradients flow through
                 # Add marginal cost to the bid action directly for initial random exploration
-                curr_action[self.technology_dim:] = curr_action[self.technology_dim:] + marginal_costs 
+                curr_action[self.curve_splits+1:] = curr_action[self.curve_splits+1:] + marginal_cost 
                 
-                max_capacity = next_observation[
-                    -2*self.technology_dim : - self.technology_dim
+                # bid price for inflexible capacity 
+                inflex_quant = self.scale(0, self.min_bid_price, self.max_bid_price) # if min_bid_price = -1 * max_bid_price, this is 0
+                curr_action[0] = inflex_quant
+
+                flex_quant = individual_obs[
+                    1: self.curve_splits+1
                 ].detach() # ensure no gradients flow through
-                curr_action[:self.technology_dim] = curr_action[:self.technology_dim] + max_capacity 
-                # Add max capacity to the price action directly for initial random exploration
-        
+                # Assumes to bid all flexible capacity
+                curr_action[1:self.curve_splits+1] = curr_action[1:self.curve_splits+1] + flex_quant 
+                        
         return curr_action, noise
 
 
     def get_individual_observations(
-        self, units_operator: "UnitsOperator", start: datetime, end: datetime
+        self, operator: "UnitsOperator", start: datetime, end: datetime
     ):
         """
-        Retrieves the observations specific to the units_operator. 
-        For each unit, computes min and maximum volume that could be dispatch and marginal costs.
-        For each technology, sum the volumes and compute the average marginal cost.
+        Retrieves the observations specific to the units_operator. Returns a scaled array
+        in range [-1,1] with the structure: [inflex_gen, flex_quant, flex_mc],
+        where:
+            inflex_gen: portfolio min generation capacity (must-run)
+            flex_quant: self.curve_splits quantiles of flex generation
+            flex_mc: self.curve_splits quantiles of flex marginal costs.
+
 
         Args
         ----
-            units_operator (UnitsOperator): The operator that bids on the market.
+            operator (UnitsOperator): The operator that bids on the market.
             start (datetime.datetime): Start time for the observation period.
             end (datetime.datetime): End time for the observation period
 
         Returns
         -------
-        individual_observations (np.array): min, max capacity and avg marginal cost by technology (scaled)
+        individual_observations (np.array): must-run generation, quantiles of avail max generation,
+        weighted quantiles of marginal costs.
 
         Notes
         -----
-            The min and max capacities are scaled by self.technology_max_power.
-            The avg marginal costs are scaled by self.max_bid_price.
+            Generation is scaled by self.installed_capacity[self.market_id].
+            Avg marginal cost is min-max scaled by [self.min_bid_price, self.max_bid_price].
         """
 
-        # --- Current volume & marginal cost ---
-        min_volume = {}
-        max_volume = {}
-        avg_cost = {}
+        units_dict = {}
+        min_gen = 0 # track total must-run quantities if any
 
         #iteratively computes the total dispatch volume and volume-weighted marginal cost
-        for unit in units_operator.units.values():
-            min_mw, max_mw = unit.calculate_min_max_power(start, end)
-            cost = unit.calculate_marginal_cost(start, max_mw)
-            min_volume[unit.technology] = min_volume.get(unit.technology, 0) + min_mw
-            max_volume[unit.technology] = max_volume.get(unit.technology, 0) + max_mw
-            avg_cost[unit.technology] = avg_cost.get(unit.technology, 0) + cost * max_mw
+        for unit_id, unit in operator.units.items():
+            min_power, max_power = unit.calculate_min_max_power(start, end)
+            min_mw, max_mw = min_power[0], max_power[0]
+            mc = unit.calculate_marginal_cost(start, max_mw)
+            # unit tuple of flex avail capacity, marginal cost
+            units_dict[unit_id] = (max_mw - min_mw, mc)
+            min_gen+= min_mw 
         
+        # sort unit tuples by marginal cost
+        sorted_units = sorted(units_dict, key=lambda x: x[-1]) 
+        flex_quant = [units_dict[unit][0] for unit in sorted_units] 
+        flex_mc = [units_dict[unit][1] for unit in sorted_units] 
+
+        q = np.linspace(0,1,self.curve_splits)
+        quant_q = np.quantile(np.cumsum(flex_quant), q=q)
+        cost_q = np.quantile(flex_mc, q=q, weights=flex_quant, method='inverted_cdf')
         #creates a list of scaled volumes and average marginal costs for each technology (alphabetically sorted)
-        scaled_min =  [min_volume[tec] / self.technology_max_power[tec] if tec in min_volume else 0 for tec in self.technology_type]
-        scaled_max =  [max_volume[tec] / self.technology_max_power[tec] if tec in max_volume else 0 for tec in self.technology_type]
-        scaled_cost = [cost / (self.technology_max_power[tec] * self.max_bid_price) if tec in avg_cost else self.max_bid_price for tec in self.technology_type]
+        scaled_quant = quant_q / operator.installed_capacity
+        scaled_cost = self.scale(cost_q, self.min_bid_price, self.max_bid_price)
 
         individual_observations = np.array(
-            [*scaled_min, *scaled_max, *scaled_cost]
+            # total inflexible generation, supply curve of flexible generation and marginal costs
+            [min_gen / operator.installed_capacity, *scaled_quant, *scaled_cost]
         )
 
         return individual_observations
@@ -486,6 +538,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         """
         # Function is called after the market is cleared, and we get the market feedback,
         # allowing us to calculate profit based on the realized transactions.
+        print("Does the reward ever get calculated")
         product_type = market_config.product_type
         start = orderbook[0]["start_time"]
         end = orderbook[0]["end_time"]
@@ -534,7 +587,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         profit = income - operational_cost
         # scaling factor to normalize the reward to the range [-1,1]
-        scaling = 1 / (self.max_bid_price * sum(self.technology_max_power.items()))
+        scaling = 1 / (self.max_bid_price * operator.installed_capacity)
         reward = scaling * profit
 
         # Store results in unit outputs, which are later written to the database by the unit operator.

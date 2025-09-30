@@ -244,7 +244,6 @@ class World:
 
         # forecaster is used only when loading custom unit types
         self.forecaster = forecaster
-
         self.bidding_params = bidding_params
 
         # create new container
@@ -424,6 +423,7 @@ class World:
             available_markets=list(self.markets.values()),
             portfolio_strategies=bidding_strategies,
         )
+        units_operator.id = id
 
         # creating a new role agent and apply the role of a units operator
         unit_operator_agent = RoleAgent()
@@ -431,7 +431,7 @@ class World:
         self.container.register(unit_operator_agent, suggested_aid=str(id))
         unit_operator_agent.suspendable_tasks = False
 
-        # add the current unitsoperator to the list of operators currently existing
+        # add the current units operator to the list of operators currently existing
         self.unit_operators[id] = units_operator
 
         # after creation of an agent - we set additional context params
@@ -442,7 +442,7 @@ class World:
                 }
             )
 
-    def add_rl_unit_operator(self, id: str = "Operator-RL") -> None:
+    def add_rl_unit_operator(self, id: str = "Operator-RL", strategies: dict[str, BasePortfolioStrategy] = {}) -> None:
         """
         Add a RL unit operator to the simulation, creating a new role agent and applying the role of a unit operator to it.
         The unit operator is then added to the list of existing operators.
@@ -459,8 +459,15 @@ class World:
 
         if self.unit_operators.get(id):
             raise ValueError(f"Unit operator {id} already exists")
+        
+        bidding_strategies = self._prepare_bidding_strategies(
+            {"bidding_strategies": strategies}, id
+        )
 
-        units_operator = RLUnitsOperator(available_markets=list(self.markets.values()))
+        units_operator = RLUnitsOperator(available_markets=list(self.markets.values()), 
+                                         portfolio_strategies=bidding_strategies)
+        units_operator.id = id
+        
         # creating a new role agent and apply the role of a units operator
         unit_operator_agent = agent_composed_of(
             units_operator,
@@ -565,16 +572,16 @@ class World:
 
     def add_learning_strategies_to_learning_role(self):
         """
-        Add bidding strategies to the learning role for the specified unit.
-
-        Args:
-            unit_id (str): The identifier for the unit.
-            bidding_strategies (dict[str, BaseStrategy | BasePortfolioStrategy]): The bidding strategies for the unit.
+        Add bidding strategies to the learning role for the specified 
+        bidder (unit or unit_operator).
         """
-        for unit in self.unit_operators["Operator-RL"].rl_units:
-            for strategy in unit.bidding_strategies.values():
+        for bidder in self.unit_operators["Operator-RL"].rl_bidders:
+            strat_type = f"{'bidding' if type(bidder)== BaseUnit else 'portfolio'}_strategies"
+            strategies = getattr(bidder, strat_type)
+            
+            for strategy in strategies.values():
                 if isinstance(strategy, LearningStrategy):
-                    self.learning_role.rl_strats[unit.id] = strategy
+                    self.learning_role.rl_strats[bidder.id] = strategy
                     break
 
     def _prepare_bidding_strategies(self, unit_params, unit_id):
@@ -689,7 +696,7 @@ class World:
         market_operator = self.market_operators.get(market_operator_id)
 
         if not market_operator:
-            raise Exception(f"invalid {market_operator_id=}")
+            raise Exception(f"invalid {market_operator_id}")
 
         market_operator.add_role(market_role)
         market_operator.markets.append(market_config)

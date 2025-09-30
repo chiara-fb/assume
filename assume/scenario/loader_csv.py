@@ -798,7 +798,8 @@ def setup_world(
         logger.info("Adding unit operators and units")
         for company_name in set(units.keys()):
             if company_name == "Operator-RL" and world.learning_mode:
-                world.add_rl_unit_operator(id="Operator-RL")
+                strategies = unit_operators_strategies.get(company_name, {})
+                world.add_rl_unit_operator(id="Operator-RL", strategies=strategies)
             else:
                 strategies = unit_operators_strategies.get(company_name, {})
                 world.add_unit_operator(id=str(company_name), strategies=strategies)
