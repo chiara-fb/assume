@@ -1,32 +1,17 @@
 # SPDX-FileCopyrightText: ASSUME Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-from assume.common.base import BaseStrategy, SupportsMinMax
-from assume.common.market_objects import MarketConfig, Order, Orderbook, Product
+
+from assume.common.market_objects import MarketConfig, Orderbook, Product
 from assume.strategies.naive_strategies import NaiveSingleBidStrategy
 from datetime import datetime, timedelta
 import numpy as np
 
-# this is for users that install ASSUME without learning strategy and related dependencies
-try: 
-    import torch as th
-    from assume.strategies.learning_strategies import BaseLearningStrategy
 
-except ImportError: 
-    pass
-
-# had to change type hint to avoid circular import
-from typing import TYPE_CHECKING
-if TYPE_CHECKING:
-    from assume.common.units_operator import UnitsOperator 
-
-
-class BasePortfolioStrategy(BaseStrategy):
+class UnitOperatorStrategy:
     """
-    The base portfolio strategy
-
-    Methods
-    -------
+    The UnitOperatorStrategy is similar to the UnitStrategy.
+    A UnitOperatorStrategy calculates the bids for all units of a units operator.
     """
 
     def __init__(self, *args, **kwargs):
@@ -34,7 +19,7 @@ class BasePortfolioStrategy(BaseStrategy):
 
     def calculate_bids(
         self,
-        operator: "UnitsOperator",
+        units_operator,  # type: UnitsOperator
         market_config: MarketConfig,
         product_tuples: list[Product],
         **kwargs,
@@ -46,7 +31,7 @@ class BasePortfolioStrategy(BaseStrategy):
         This gives a lot of flexibility to the market bids.
 
         Args:
-            operator (UnitsOperator): The operator handling the units.
+            units_operator (UnitsOperator): The operator handling the units.
             market_config (MarketConfig): The market configuration.
             product_tuples (list[Product]): The list of all products the unit can offer.
 
@@ -55,23 +40,22 @@ class BasePortfolioStrategy(BaseStrategy):
         """
         return []
 
-    
-    def calculate_tot_capacity(
+    def tot_capacity(
             self,
-            operator: "UnitsOperator", 
+            units_operator,  # type: UnitsOperator
     ) -> dict[str,float]:
         """
         Computes the total capacity of the units owned by a unit operator by market.
         
         Args: 
-            operator (UnitsOperator): The operator that bids on the market(s).
+            units_operator (UnitsOperator): The operator that bids on the market(s).
         Returns: 
             dict: a dictionary indexed by market_id.
         """
 
         tot_capacity = {}
 
-        for unit in operator.units.values():
+        for unit in units_operator.units.values():
             for market_id in unit.bidding_strategies.keys():
                 tot_capacity[market_id] = tot_capacity.get(market_id, 0) + unit.max_power
 
@@ -79,85 +63,99 @@ class BasePortfolioStrategy(BaseStrategy):
     
 
 
-class SimplePortfolioStrategy(BasePortfolioStrategy):
-    """
-    A naive strategy that bids the marginal cost of the unit on the market.
-
-    Methods
-    -------
-    """
-
+class DirectUnitOperatorStrategy(UnitOperatorStrategy):
     def calculate_bids(
         self,
-        operator: "UnitsOperator",
+        units_operator,  # type: UnitsOperator
         market_config: MarketConfig,
         product_tuples: list[Product],
         **kwargs,
-) -> Orderbook:
-        # TODO this should be adjusted
-        start = product_tuples[0][0]  # start time of the first product
-        end_all = product_tuples[-1][1]  # end time of the last product
+    ) -> Orderbook:
+        """
+        Formulates the bids to the market according to the bidding strategy of the each unit individually.
+        This calls calculate_bids of each unit and returns the aggregated list of all individual bids of all units.
 
-        for unit_id, unit in operator.units.items():
-            pass
+        Args:
+            units_operator: The units operator whose units are queried
+            market_config (MarketConfig): The market to formulate bids for.
+            product_tuples (list[tuple]): The products to formulate bids for.
 
-        bids = []
+        Returns:
+            OrderBook: The orderbook that is submitted as a bid to the market.
+        """
+        bids: Orderbook = []
+
+        for unit_id, unit in units_operator.units.items():
+            product_bids = unit.calculate_bids(
+                market_config=market_config,
+                product_tuples=product_tuples,
+            )
+            for i, order in enumerate(product_bids):
+                order["agent_addr"] = units_operator.context.addr
+                if market_config.volume_tick:
+                    order["volume"] = round(order["volume"] / market_config.volume_tick)
+                if market_config.price_tick:
+                    order["price"] = round(order["price"] / market_config.price_tick)
+                if "bid_id" not in order.keys() or order["bid_id"] is None:
+                    order["bid_id"] = f"{unit_id}_{i+1}"
+                order["unit_id"] = unit_id
+                bids.append(order)
+
         return bids
-    
 
-class CournotStrategy(BasePortfolioStrategy): 
+
+class CournotPortfolioStrategy(UnitOperatorStrategy):
     """
-    A Cournot strategy that adds a markup to the marginal cost of each unit of 
-    the units operator. The marginal cost is computed with NaiveSingleBidStrategy, 
+    A Cournot strategy that adds a markup to the marginal cost of each unit of
+    the units operator. The marginal cost is computed with NaiveSingleBidStrategy,
     and the markup depends on the total capacity of the unit operator.
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.markup = kwargs.get("markup", 0.01)
-
+        self.markup = kwargs.get("markup", 0)
 
     def calculate_bids(
         self,
-        operator: "UnitsOperator", 
+        units_operator,  # type: UnitsOperator
         market_config: MarketConfig,
         product_tuples: list[Product],
+        **kwargs,
     ) -> Orderbook:
         """
         Takes information from a unit that the unit operator manages and
         defines how it is dispatched to the market.
 
         Args:
-            units_operator (UnitsOperator): The operator that bids on the market.
+            units_operator (UnitsOperator): The units operator that bids on the market.
             market_config (MarketConfig): The configuration of the market.
-            product_tuples (list[Product]): The list of all products the unit can offer.
+            product_tuples (list[Product]): The list of all products open for bidding.
 
         Returns:
-            Orderbook: The bids consisting of the start time, end time, only hours, price and volume.
+            Orderbook: The bids consisting of the start time, end time, price and volume.
         """
 
-        tot_capacity = self.calculate_tot_capacity(operator)[market_config.market_id]
-        #TODO: divide by total available capacity in the market 
-
+        max_power = self.tot_capacity(units_operator)[market_config.market_id]
         operator_bids = Orderbook()
-        ## Compute marginal costs ###
-        for unit_id, unit in operator.units.items():
+
+        for unit_id, unit in units_operator.units.items():
+            # Compute bids from marginal costs of a unit
             bids = NaiveSingleBidStrategy().calculate_bids(
-                    unit,
-                    market_config,
-                    product_tuples,
-                )
-            
-            ### Apply Cournot mark-up ###
+                unit,
+                market_config,
+                product_tuples,
+            )
+            # Apply Cournot mark-up
             for bid in bids:
-                bid["price"] += self.markup * tot_capacity
+                bid["price"] += self.markup * max_power
                 bid["unit_id"] = unit_id
-                
-                operator_bids.append(bid)
+
+            operator_bids.extend(bids)
 
         return operator_bids
 
 
-class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
+class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
     """
     Reinforcement Learning Strategy that enables the agent to learn optimal bidding strategies for
     the portfolio of a units operator on an Energy-Only Market.
@@ -197,7 +195,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
     max_bid_price : float
         Maximum allowable bid price. Defaults to 100.
     min_bid_price : float
-        Maximum allowable bid price. Defaults to  -100.
+        Maximum allowable bid price. Defaults to -100.
     max_demand : float
         Maximum demand capacity of the unit. Defaults to 10e3.
     device : str
@@ -260,7 +258,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
     def calculate_bids(
         self,
-        operator: "UnitsOperator",
+        units_operator,  # type: UnitsOperator
         market_config: MarketConfig,
         product_tuples: list[Product],
         **kwargs,
@@ -270,7 +268,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         Args
         ----
-            operator (UnitsOperator): The operator that bids on the market.
+            units_operator (UnitsOperator): The operator that bids on the market.
             market_config (MarketConfig): The configuration of the market.
             product_tuples (list[Product]): List of products with start and end times for bidding.
             **kwargs : Additional keyword arguments.
@@ -293,16 +291,16 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         end = product_tuples[0][1]
 
         # assign forecaster, outputs dict and technology_max_power dict to units_operator
-        if not hasattr(operator, 'installed_capacity'):
+        if not hasattr(units_operator, 'installed_capacity'):
             market_id = market_config.market_id
-            tot_capacity = self.calculate_tot_capacity(operator)
-            operator.installed_capacity = tot_capacity[market_id]
+            tot_capacity = self.tot_capacity(units_operator)
+            units_operator.installed_capacity = tot_capacity[market_id]
         
         # =============================================================================
         # 1. Get the Observations, which are the basis of the action decision
         # =============================================================================
         next_observation = self.create_observation(
-            unit=operator,
+            unit=units_operator,
             market_id=market_config.market_id,
             start=start,
             end=end,
@@ -325,7 +323,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         scaled_price_inflex = actions[0].item()
         scaled_price_flex = actions[1:].numpy()
         
-        tot_quant_flex = self.rescale(scaled_quant_flex, 0, operator.installed_capacity)
+        tot_quant_flex = self.rescale(scaled_quant_flex, 0, units_operator.installed_capacity)
         price_flex = self.rescale(scaled_price_flex, self.min_bid_price, self.max_bid_price)
         price_inflex = self.rescale(scaled_price_inflex, self.min_bid_price, self.max_bid_price)
         # sorted is needed because we are not enforcing prices to be increasing
@@ -334,7 +332,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         units = {}
         bids = []
         
-        for unit_id, unit in operator.units.items():
+        for unit_id, unit in units_operator.units.items():
             min_power, max_power = unit.calculate_min_max_power(start,end)
             min_mw, max_mw = min_power[0], max_power[0]
             mc = unit.calculate_marginal_cost(start, max_mw)
@@ -371,8 +369,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                             "price": float(price_inflex),
                             "volume": float(inflex_gen),
                             "unit_id": unit_id,
-                            "bid_id": f"{operator.id}_{unit_id}_inflex", # units_operator.id_unit.id
-                            "node": operator.units[unit_id].node,
+                            "bid_id": f"{units_operator.id}_{unit_id}_inflex", # units_operator.id_unit.id
+                            "node": units_operator.units[unit_id].node,
                             })
                     
                     bids.append({           
@@ -383,8 +381,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     # min() for partial bid if avail capacity is greater than bid_quantity left
                     "volume": float(volume),
                     "unit_id": unit_id,
-                    "bid_id": f"{operator.id}_{unit_id}_{ix}", # units_operator.id_unit.id
-                    "node": operator.units[unit_id].node,
+                    "bid_id": f"{units_operator.id}_{unit_id}_{ix}", # units_operator.id_unit.id
+                    "node": units_operator.units[unit_id].node,
                     })
 
                     # if unit capacity was fully used, drop it; else, reduce its capacity
@@ -396,12 +394,12 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     quant_flex_ix -= volume                     
 
         # store results in unit outputs as lists to be written to the buffer for learning
-        operator.outputs["rl_observations"].append(next_observation)
-        operator.outputs["rl_actions"].append(actions)
+        units_operator.outputs["rl_observations"].append(next_observation)
+        units_operator.outputs["rl_actions"].append(actions)
 
         # store results in unit outputs as series to be written to the database by the unit operator
-        operator.outputs["actions"].at[start] = actions
-        operator.outputs["exploration_noise"].at[start] = noise
+        units_operator.outputs["actions"].at[start] = actions
+        units_operator.outputs["exploration_noise"].at[start] = noise
 
         return bids
 
@@ -449,7 +447,9 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
 
     def get_individual_observations(
-        self, operator: "UnitsOperator", start: datetime, end: datetime
+        self, 
+        units_operator,  # type: UnitsOperator
+        start: datetime, end: datetime
     ):
         """
         Retrieves the observations specific to the units_operator. Returns a scaled array
@@ -462,7 +462,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         Args
         ----
-            operator (UnitsOperator): The operator that bids on the market.
+            units_operator (UnitsOperator): The operator that bids on the market.
             start (datetime.datetime): Start time for the observation period.
             end (datetime.datetime): End time for the observation period
 
@@ -482,7 +482,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         tot_quant_flex = 0
 
         #iteratively computes the total dispatch volume and volume-weighted marginal cost
-        for unit in operator.units.values():
+        for unit in units_operator.units.values():
             min_power, max_power = unit.calculate_min_max_power(start, end)
             min_mw, max_mw = min_power[0], max_power[0]
             mc = unit.calculate_marginal_cost(start, max_mw)
@@ -492,8 +492,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
             tot_quant_flex+= max_mw - min_mw
 
         # Total flexible and inflexible generation
-        scaled_quant_flex = tot_quant_flex / operator.installed_capacity
-        scaled_quant_inflex = tot_quant_inflex / operator.installed_capacity
+        scaled_quant_flex = tot_quant_flex / units_operator.installed_capacity
+        scaled_quant_inflex = tot_quant_inflex / units_operator.installed_capacity
         
         # Sort unit tuples by marginal cost
         sorted_tuples = sorted(unit_tuples, key=lambda x: x[-1]) 
@@ -514,7 +514,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
     def calculate_reward(
         self,
-        operator: "UnitsOperator",
+        units_operator,  # type: UnitsOperator
         marketconfig: MarketConfig,
         orderbook: Orderbook,
     ):
@@ -523,7 +523,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         Args
         ----
-            operator (UnitsOperator): The operator for which to calculate the reward.
+            units_operator (UnitsOperator): The operator for which to calculate the reward.
             marketconfig (MarketConfig): The configuration of the market.
             orderbook (Orderbook): Orderbook containing executed bids and details.
 
@@ -555,7 +555,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         # Iterate over all orders in the orderbook to calculate order-specific profit.
         for order in orderbook:
             unit_id = order["unit_id"]
-            unit = operator.units[unit_id]
+            unit = units_operator.units[unit_id]
 
             accepted_volume = order.get("accepted_volume", 0)
             accepted_volume_total += accepted_volume
@@ -585,15 +585,15 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         profit = income - operational_cost
         # scaling factor to normalize the reward to the range [-1,1]
-        scaling = 1 / (self.max_bid_price * operator.installed_capacity)
+        scaling = 1 / (self.max_bid_price * units_operator.installed_capacity)
         reward = scaling * profit
 
         # Store results in unit outputs, which are later written to the database by the unit operator.
         # `end_excl` marks the last product's start time by subtracting one frequency interval.
         end_excl = end - unit.index.freq 
-        operator.outputs["profit"].loc[start:end_excl] += profit
-        operator.outputs["reward"].loc[start:end_excl] = reward
+        units_operator.outputs["profit"].loc[start:end_excl] += profit
+        units_operator.outputs["reward"].loc[start:end_excl] = reward
         #units_operator.outputs["regret"].loc[start:end_excl] = regret_scale * opportunity_cost
-        operator.outputs["total_costs"].loc[start:end_excl] = operational_cost
-        operator.outputs["rl_rewards"].append(reward)
+        units_operator.outputs["total_costs"].loc[start:end_excl] = operational_cost
+        units_operator.outputs["rl_rewards"].append(reward)
 

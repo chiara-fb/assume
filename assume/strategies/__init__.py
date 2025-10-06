@@ -25,14 +25,13 @@ from assume.strategies.naive_strategies import (
 from assume.strategies.manual_strategies import SimpleManualTerminalStrategy
 from assume.strategies.dmas_powerplant import DmasPowerplantStrategy
 from assume.strategies.dmas_storage import DmasStorageStrategy
-from assume.strategies.portfolio_strategies import CournotStrategy
-from assume.strategies.iterative_strategies import ErevRothStrategy
 from assume.strategies.portfolio_strategies import (
-    BasePortfolioStrategy,
-    SimplePortfolioStrategy,
+    UnitOperatorStrategy,
+    DirectUnitOperatorStrategy,
+    CournotPortfolioStrategy,
 )
 
-bidding_strategies: dict[str, type[BaseStrategy | BasePortfolioStrategy]] = {
+bidding_strategies: dict[str, type[BaseStrategy | UnitOperatorStrategy]] = {
     "naive_eom": NaiveSingleBidStrategy,
     "naive_dam": NaiveProfileStrategy,
     "naive_pos_reserve": NaiveSingleBidStrategy,
@@ -56,9 +55,7 @@ bidding_strategies: dict[str, type[BaseStrategy | BasePortfolioStrategy]] = {
     "manual_strategy": SimpleManualTerminalStrategy,
     "dmas_powerplant": DmasPowerplantStrategy,
     "dmas_storage": DmasStorageStrategy,
-    "cournot_portfolio": CournotStrategy,
-    "erev_roth": ErevRothStrategy,
-    "simple_portfolio": SimplePortfolioStrategy,
+    "cournot_portfolio": CournotPortfolioStrategy,
 }
 
 try:
@@ -69,7 +66,6 @@ try:
         RenewableRLStrategy,
     )
     from assume.strategies.portfolio_strategies import PortfolioRLStrategy
-    
     bidding_strategies["pp_learning"] = RLStrategy
     bidding_strategies["pp_learning_single_bid"] = RLStrategySingleBid
     bidding_strategies["storage_learning"] = StorageRLStrategy

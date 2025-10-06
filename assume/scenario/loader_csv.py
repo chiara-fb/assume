@@ -38,6 +38,14 @@ def bidding_strategies_from_param_dict(param_dict: dict):
     }
 
 
+def bidding_strategies_from_param_dict(param_dict: dict):
+    return {
+        ident.split("bidding_")[1]: strategy
+        for ident, strategy in param_dict.items()
+        if ident.startswith("bidding_")
+    }
+
+
 def load_file(
     path: str,
     config: dict,
@@ -775,12 +783,9 @@ def setup_world(
     for op, op_units in exchange_units.items():
         units[op].extend(op_units)
 
-    
     if unit_operators is not None:
         logger.info("Create unit_operators for portfolio strategies")
         unit_operators_strategies = unit_operators.to_dict("index")
-        
-
         # remove starting "bidding_" string from market names
         for operator in unit_operators_strategies.keys():
             raw_strategies = unit_operators_strategies[operator]
