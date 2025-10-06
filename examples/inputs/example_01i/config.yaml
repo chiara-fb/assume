@@ -9,6 +9,9 @@ base:
   exchange_units: null
   save_frequency_hours: 720
 
+  bidding_strategy_params:
+    cournot_markup: 0.1
+
   markets_config:
     EOM:
       operator: EOM_operator
@@ -33,6 +36,9 @@ base_with_exchanges:
   exchange_units: exchange_units.csv
   save_frequency_hours: 720
 
+  bidding_strategy_params:
+    cournot_markup: 0.1
+
   markets_config:
     EOM:
       operator: EOM_operator
@@ -55,6 +61,9 @@ tiny:
   end_date: 2019-01-02 00:00
   time_step: 1h
   save_frequency_hours: 24
+
+  bidding_strategy_params:
+    cournot_markup: 0.1
 
   markets_config:
     EOM:
@@ -80,6 +89,9 @@ dam:
   exchange_units: null
   save_frequency_hours: 720
 
+  bidding_strategy_params:
+    cournot_markup: 0.1
+
   markets_config:
     EOM:
       operator: EOM_operator
@@ -103,6 +115,9 @@ dam_with_complex_clearing:
   time_step: 1h
   exchange_units: null
   save_frequency_hours: 720
+
+  bidding_strategy_params:
+    cournot_markup: 0.1
 
   markets_config:
     EOM:
