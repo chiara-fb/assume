@@ -65,7 +65,7 @@ try:
         StorageRLStrategy,
         RenewableRLStrategy,
     )
-    from assume.strategies.portfolio_strategies import PortfolioRLStrategy
+    from assume.strategies.portfolio_learning_strategies import PortfolioRLStrategy
     bidding_strategies["pp_learning"] = RLStrategy
     bidding_strategies["pp_learning_single_bid"] = RLStrategySingleBid
     bidding_strategies["storage_learning"] = StorageRLStrategy
