@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from assume.common.units_operator import UnitsOperator 
 
 
-class BasePortfolioStrategy:
+class BasePortfolioStrategy(BaseStrategy):
     """
     The base portfolio strategy
 
@@ -76,6 +76,7 @@ class BasePortfolioStrategy:
                 tot_capacity[market_id] = tot_capacity.get(market_id, 0) + unit.max_power
 
         return tot_capacity
+    
 
 
 class SimplePortfolioStrategy(BasePortfolioStrategy):
@@ -227,11 +228,11 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
     def __init__(self, *args, **kwargs):
 
         obs_dim = kwargs.pop("obs_dim", 43) # 36 shared observations + 7 unique_observations  
-        act_dim = kwargs.pop("act_dim", 7) # bids and quantities for flexible generation, price for inflexible generation
-        unique_obs_dim = kwargs.pop("unique_obs_dim", 7) # tot inflexible generation, flexible gen quantiles and marginal cost quanties
-        self.curve_splits = act_dim // 2 # the number of (price, quantity) tuples to offer (default: 3)
+        act_dim = kwargs.pop("act_dim", 6) # price for flexible generation, price for inflexible generation
+        unique_obs_dim = kwargs.pop("unique_obs_dim", 7) # tot inflexible capacity, tot flexible capacity, flexible marginal cost quantiles
+        self.n_prices = act_dim - 1 # the number of prices to offer for flexible generation (default: 5)
         
-        kwargs["unit_id"] = 'rl_operator'
+        kwargs["bidder_id"] = 'Operator-RL'
         
         super().__init__(
             obs_dim=obs_dim,
@@ -282,11 +283,10 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         Notes
         -----
         This method obtains actions as a tensor of quantities and bid prices, where the first
-        bid is the price for inflex generation, the next self.curve_splits are bid quantities
-        for flex generation, followed by bid prices for flex generation. Unit-specific bids 
-        are submitted accordingly by sorting the units by their marginal cost, and bidding 
-        their inflex generation to the inflex bid price, the flex generation to the lowest 
-        curve_splits whose capacity is still not fully bid.
+        bid is the price for inflex generation, the next self.flex_prices are bid prices for 
+        flex generation. Unit-specific bids are submitted accordingly by sorting the units 
+        by their marginal cost, and bidding their inflex generation for the inflex bid price, 
+        their flex generation for the next price quantile whose capacity is still not fully bid.
         """
 
         start = product_tuples[0][0]
@@ -294,7 +294,9 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         # assign forecaster, outputs dict and technology_max_power dict to units_operator
         if not hasattr(operator, 'installed_capacity'):
-            raise ValueError("Operator is not a RL-Operator.")
+            market_id = market_config.market_id
+            tot_capacity = self.calculate_tot_capacity(operator)
+            operator.installed_capacity = tot_capacity[market_id]
         
         # =============================================================================
         # 1. Get the Observations, which are the basis of the action decision
@@ -306,6 +308,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
             end=end,
         )
 
+        
         # =============================================================================
         # 2. Get the Actions, based on the observations
         # =============================================================================
@@ -317,16 +320,16 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         # actions are in the range [-1,1], we need to transform them into actual bids
         # we can use our domain knowledge to guide the bid formulation
         
-        # first curve_splits actions are quantities
+        # first n_prices actions are quantities
+        scaled_quant_flex = next_observation[-self.n_prices+1]
         scaled_price_inflex = actions[0].item()
-        scaled_quant = actions[1:self.curve_splits+1].numpy()
-        scaled_price = actions[self.curve_splits+1:].numpy()
+        scaled_price_flex = actions[1:].numpy()
         
-        bid_quant = self.rescale(scaled_quant, 0, operator.installed_capacity)
-        bid_price = self.rescale(scaled_price, self.min_bid_price, self.max_bid_price)
+        tot_quant_flex = self.rescale(scaled_quant_flex, 0, operator.installed_capacity)
+        price_flex = self.rescale(scaled_price_flex, self.min_bid_price, self.max_bid_price)
         price_inflex = self.rescale(scaled_price_inflex, self.min_bid_price, self.max_bid_price)
         # sorted is needed because we are not enforcing prices to be increasing
-        sorted_index = np.argsort(bid_price)
+        sorted_index = np.argsort(price_flex)
 
         units = {}
         bids = []
@@ -341,15 +344,15 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         # sort unit tuples by by marginal cost
         sorted_units = sorted(units, key=lambda x: x[-1]) 
 
-        for ix in range(self.curve_splits):
-            
-            # bid the maximum available capacity of units until bid_quantity is covered
-            # or there are no further units
+        for ix in range(self.n_prices):
+            # each quantile has the same size, given by tot_quant_flex / self.n_prices
+            quant_flex_ix = tot_quant_flex / self.n_prices
+            # bid unit max capacity until quant_flex_ix is covered or no more units to bid
             for unit_id in sorted_units:
                 inflex_gen, flex_gen, mc = units.get(unit_id, (None,None,None))
 
                 #if the quantity is fully offered move to next curve split
-                if bid_quant[ix] == 0: 
+                if quant_flex_ix == 0: 
                     break
                 
                 # if unit capacity was fully used, move to next unit
@@ -357,7 +360,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     continue
                 
                 else: 
-                    volume = min(flex_gen, bid_quant[sorted_index[ix]])
+                    volume = min(flex_gen, quant_flex_ix)
 
                     # we assume all units to bid their inflexible generation at the same price
                     if inflex_gen > 0:
@@ -376,7 +379,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     "start_time": start,
                     "end_time": end,
                     "only_hours": None,
-                    "price": float(bid_price[sorted_index[ix]]),
+                    "price": float(price_flex[sorted_index[ix]]),
                     # min() for partial bid if avail capacity is greater than bid_quantity left
                     "volume": float(volume),
                     "unit_id": unit_id,
@@ -388,9 +391,9 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
                     if volume == flex_gen:
                         units.pop(unit_id)
                     else: 
-                        units[unit_id] = (0, flex_gen - bid_quant[ix], mc)
+                        units[unit_id] = (0, flex_gen - quant_flex_ix, mc)
                     
-                    bid_quant[ix] -= volume                     
+                    quant_flex_ix -= volume                     
 
         # store results in unit outputs as lists to be written to the buffer for learning
         operator.outputs["rl_observations"].append(next_observation)
@@ -415,15 +418,16 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         -------
         tuple of torch.Tensor
             A tuple containing: Actions to be taken (with or without noise). The noise component (if any), useful for diagnostics.
-            The action to be taken represent the price for inflex generation, and self.curve_splits bid volumes and prices for
-            flexible generation, scaled to the range [-1, 1].
+            The output action has the structure: [inflex_price, flex_price ] where inflex_price is an int representing a single
+            price for inflexible generation, and flex_price a list of self.n_prices price flexible generation. 
+            Output is scaled to the range [-1, 1].
 
         Notes
         -----
         During learning, exploratory noise is applied and already part of the curr_action unless in evaluation mode.
         In initial exploration mode, flex price and quantities actions are sampled around the respective quantiles, and inflex
-        price around zero to explore its vicinity. This assumes the last 2*self.curve_splits+1 elements of`next_observation`
-        have the following structure: [inflex_gen, flex_quant, flex_mc]
+        price around zero to explore its vicinity. This assumes the last self.n_prices+2 elements of`next_observation`
+        have the following structure: [inflex_quantity, flex_quantity, flex_mc]
         """
 
         # Get the base action and associated noise from the parent implementation
@@ -432,22 +436,14 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         if self.learning_mode and not self.evaluation_mode:
             if self.collect_initial_experience_mode:
                 # Assumes last dimensions of the observation are the individual obs
-                individual_obs = next_observation[-2*self.curve_splits+1:]
-                marginal_cost = individual_obs[
-                    self.curve_splits+1:
-                ].detach()  # ensure no gradients flow through
+                individual_obs = next_observation[-self.n_prices+2:]
+                marginal_costs = individual_obs[2:].detach()  # ensure no gradients flow through
                 # Add marginal cost to the bid action directly for initial random exploration
-                curr_action[self.curve_splits+1:] = curr_action[self.curve_splits+1:] + marginal_cost 
+                curr_action[1:] = curr_action[1:] + marginal_costs 
                 
                 # bid price for inflexible capacity 
                 inflex_quant = self.scale(0, self.min_bid_price, self.max_bid_price) # if min_bid_price = -1 * max_bid_price, this is 0
-                curr_action[0] = inflex_quant
-
-                flex_quant = individual_obs[
-                    1: self.curve_splits+1
-                ].detach() # ensure no gradients flow through
-                # Assumes to bid all flexible capacity
-                curr_action[1:self.curve_splits+1] = curr_action[1:self.curve_splits+1] + flex_quant 
+                curr_action[0] = curr_action[0] + inflex_quant
                         
         return curr_action, noise
 
@@ -460,8 +456,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         in range [-1,1] with the structure: [inflex_gen, flex_quant, flex_mc],
         where:
             inflex_gen: portfolio min generation capacity (must-run)
-            flex_quant: self.curve_splits quantiles of flex generation
-            flex_mc: self.curve_splits quantiles of flex marginal costs.
+            flex_quant: self.n_prices quantiles of flex generation
+            flex_mc: self.n_prices quantiles of flex marginal costs.
 
 
         Args
@@ -472,7 +468,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
 
         Returns
         -------
-        individual_observations (np.array): must-run generation, quantiles of avail max generation,
+        individual_observations (np.array): total inflexible capacity, total flexible capacity,
         weighted quantiles of marginal costs.
 
         Notes
@@ -481,33 +477,36 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
             Avg marginal cost is min-max scaled by [self.min_bid_price, self.max_bid_price].
         """
 
-        units_dict = {}
-        min_gen = 0 # track total must-run quantities if any
+        unit_tuples = []
+        tot_quant_inflex = 0 
+        tot_quant_flex = 0
 
         #iteratively computes the total dispatch volume and volume-weighted marginal cost
-        for unit_id, unit in operator.units.items():
+        for unit in operator.units.values():
             min_power, max_power = unit.calculate_min_max_power(start, end)
             min_mw, max_mw = min_power[0], max_power[0]
             mc = unit.calculate_marginal_cost(start, max_mw)
-            # unit tuple of flex avail capacity, marginal cost
-            units_dict[unit_id] = (max_mw - min_mw, mc)
-            min_gen+= min_mw 
-        
-        # sort unit tuples by marginal cost
-        sorted_units = sorted(units_dict, key=lambda x: x[-1]) 
-        flex_quant = [units_dict[unit][0] for unit in sorted_units] 
-        flex_mc = [units_dict[unit][1] for unit in sorted_units] 
+            # unit tuple of flex capacity, marginal cost
+            unit_tuples.append((max_mw - min_mw, mc))
+            tot_quant_inflex+= min_mw 
+            tot_quant_flex+= max_mw - min_mw
 
-        q = np.linspace(0,1,self.curve_splits)
-        quant_q = np.quantile(np.cumsum(flex_quant), q=q)
-        cost_q = np.quantile(flex_mc, q=q, weights=flex_quant, method='inverted_cdf')
-        #creates a list of scaled volumes and average marginal costs for each technology (alphabetically sorted)
-        scaled_quant = quant_q / operator.installed_capacity
+        # Total flexible and inflexible generation
+        scaled_quant_flex = tot_quant_flex / operator.installed_capacity
+        scaled_quant_inflex = tot_quant_inflex / operator.installed_capacity
+        
+        # Sort unit tuples by marginal cost
+        sorted_tuples = sorted(unit_tuples, key=lambda x: x[-1]) 
+        flex_q, flex_mc = zip(*sorted_tuples)
+    
+        # Average marginal costs for each quantile
+        q = np.linspace(0,1,self.n_prices)
+        cost_q = np.quantile(flex_mc, q=q, weights=flex_q, method='inverted_cdf')
         scaled_cost = self.scale(cost_q, self.min_bid_price, self.max_bid_price)
 
         individual_observations = np.array(
-            # total inflexible generation, supply curve of flexible generation and marginal costs
-            [min_gen / operator.installed_capacity, *scaled_quant, *scaled_cost]
+            # total inflexible generation, total flexible generation and marginal costs
+            [scaled_quant_inflex, scaled_quant_flex, *scaled_cost]
         )
 
         return individual_observations
@@ -516,7 +515,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
     def calculate_reward(
         self,
         operator: "UnitsOperator",
-        market_config: MarketConfig,
+        marketconfig: MarketConfig,
         orderbook: Orderbook,
     ):
         """
@@ -525,7 +524,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         Args
         ----
             operator (UnitsOperator): The operator for which to calculate the reward.
-            market_config (MarketConfig): The configuration of the market.
+            marketconfig (MarketConfig): The configuration of the market.
             orderbook (Orderbook): Orderbook containing executed bids and details.
 
         Notes
@@ -538,8 +537,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, BasePortfolioStrategy):
         """
         # Function is called after the market is cleared, and we get the market feedback,
         # allowing us to calculate profit based on the realized transactions.
-        print("Does the reward ever get calculated")
-        product_type = market_config.product_type
+        product_type = marketconfig.product_type
         start = orderbook[0]["start_time"]
         end = orderbook[0]["end_time"]
 

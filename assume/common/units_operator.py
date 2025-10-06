@@ -28,6 +28,9 @@ from assume.common.utils import (
 from assume.strategies import BaseStrategy
 from assume.units import BaseUnit
 
+from assume.common.fast_pandas import TensorFastSeries, FastSeries
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 
 
@@ -328,7 +331,18 @@ class UnitsOperator(Role):
             orderbook (Orderbook): The orderbook of the market.
             marketconfig (MarketConfig): The market configuration.
         """
+        market_id = marketconfig.market_id
         orderbook.sort(key=itemgetter("unit_id"))
+
+        # if operator uses portfolio opt, calculate portfolio-level reward
+        if self.portfolio_strategies.get(market_id, False):
+            portfolio_strategy = self.portfolio_strategies[market_id]
+            portfolio_strategy.calculate_reward(self, 
+                                                marketconfig=marketconfig, 
+                                                orderbook=orderbook)
+
+        # reward will note be computed twice as it is not possible to have 
+        # both a learning unit and a learning operator
         for unit_id, orders in groupby(orderbook, itemgetter("unit_id")):
             orderbook = list(orders)
             self.units[unit_id].calculate_cashflow_and_reward(
@@ -548,3 +562,40 @@ class UnitsOperator(Role):
                 orderbook.append(order)
 
         return orderbook
+
+    def init_portfolio_learning(self):
+        """
+        If the portfolio strategy of the units operator in a market is a learning strategy,
+        add required features to the units operator (forecaster, outputs dictionary).
+        """
+
+        for unit in self.units.values():
+            if hasattr(unit, "forecaster"):
+                self.forecaster = unit.forecaster
+                break
+
+        self.outputs = defaultdict(lambda: FastSeries(value=0.0, index=unit.index))
+        
+        self.outputs["actions"] = TensorFastSeries(value=0.0, index=unit.index, name='actions')
+        self.outputs["exploration_noise"] = TensorFastSeries(
+            value=0.0,
+            index=unit.index,
+            name='exploration_noise',
+        )
+        self.outputs["reward"] = FastSeries(value=0.0, index=unit.index, name='reward')
+        # RL data stored as lists to simplify storing to the buffer
+        self.outputs["rl_observations"] = []
+        self.outputs["rl_actions"] = []
+        self.outputs["rl_rewards"] = []   
+
+
+    def reset_saved_rl_data(self):
+        """
+        Resets the saved RL data. This deletes all data besides the observation and action where we do not yet have calculated reward values.
+        """
+        values_len = len(self.outputs["rl_rewards"])
+
+        self.outputs["rl_observations"] = self.outputs["rl_observations"][values_len:]
+        self.outputs["rl_actions"] = self.outputs["rl_actions"][values_len:]
+        self.outputs["rl_rewards"] = []
+

@@ -779,6 +779,8 @@ def setup_world(
     if unit_operators is not None:
         logger.info("Create unit_operators for portfolio strategies")
         unit_operators_strategies = unit_operators.to_dict("index")
+        
+
         # remove starting "bidding_" string from market names
         for operator in unit_operators_strategies.keys():
             raw_strategies = unit_operators_strategies[operator]

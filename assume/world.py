@@ -463,7 +463,7 @@ class World:
         bidding_strategies = self._prepare_bidding_strategies(
             {"bidding_strategies": strategies}, id
         )
-
+ 
         units_operator = RLUnitsOperator(available_markets=list(self.markets.values()), 
                                          portfolio_strategies=bidding_strategies)
         units_operator.id = id
@@ -576,7 +576,7 @@ class World:
         bidder (unit or unit_operator).
         """
         for bidder in self.unit_operators["Operator-RL"].rl_bidders:
-            strat_type = f"{'bidding' if type(bidder)== BaseUnit else 'portfolio'}_strategies"
+            strat_type = f"{'portfolio' if isinstance(bidder, UnitsOperator) else 'bidding'}_strategies"
             strategies = getattr(bidder, strat_type)
             
             for strategy in strategies.values():
@@ -619,7 +619,7 @@ class World:
             if strategy not in strategy_instances:
                 # Create and cache the strategy instance if not already created
                 strategy_instances[strategy] = self.bidding_strategies[strategy](
-                    unit_id=unit_id,
+                    bidder_id=unit_id,
                     **bidding_params,
                 )
 

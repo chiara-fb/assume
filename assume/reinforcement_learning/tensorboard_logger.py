@@ -93,7 +93,6 @@ class TensorBoardLogger:
     learning_mode (bool, optional): Whether the simulation is in learning mode. Defaults to False.
     episodes_collecting_initial_experience (int, optional): Number of episodes for initial experience collection. Defaults to 0.
     evaluation_mode (bool, optional): Whether the simulation is in evaluation mode. Defaults to False.
-    bidder_type (str, optional): The type of reinforcement learning agent (unit or units_operator)
 
     """
 
@@ -106,7 +105,6 @@ class TensorBoardLogger:
         episode: int = 1,
         eval_episode: int = 1,
         episodes_collecting_initial_experience: int = 0,
-        bidder_type:str = "unit", 
     ):
         self.simulation_id = simulation_id
         self.learning_mode = learning_mode
@@ -122,10 +120,6 @@ class TensorBoardLogger:
 
         # get episode number if in learning or evaluation mode
         self.episode = episode if not evaluation_mode else eval_episode
-        
-        # The type of reinforcement learning agent (unit or units_operator)
-        assert bidder_type in ["unit", "unit_operator"], ValueError("bidder_tpye must be 'unit' or 'unit_operator'")
-        self.bidder_type = bidder_type
 
     def update_tensorboard(self):
         """Store episodic evaluation data in tensorboard"""
@@ -176,7 +170,7 @@ class TensorBoardLogger:
         # Dynamically build the SQL query, ensuring proper commas
         query_parts = [
             f"{date_func} AS dt",
-            self.bidder, 
+            "bidder", 
             "SUM(profit) AS profit",
             "SUM(reward) AS reward",
         ]
@@ -197,7 +191,7 @@ class TensorBoardLogger:
             WHERE episode = '{self.episode}'
             AND simulation = '{self.simulation_id}'
             AND evaluation_mode = {self.evaluation_mode}
-            GROUP BY dt, {self.bidder}
+            GROUP BY dt, bidder
             ORDER BY dt
         """
 
@@ -224,7 +218,7 @@ class TensorBoardLogger:
             WHERE episode = '{self.episode}'
             AND simulation = '{self.simulation_id}'
             AND evaluation_mode = {self.evaluation_mode}
-            GROUP BY step, {self.bidder} 
+            GROUP BY step, bidder
             ORDER BY step
             """
             if mode == "02_train" 
@@ -355,7 +349,7 @@ class TensorBoardLogger:
                 else self.episode
             )
             # Log episode-level reward
-            episode_reward_avg = df_sim.groupby(self.bidder)["reward"].sum().mean() 
+            episode_reward_avg = df_sim.groupby("bidder")["reward"].sum().mean() 
             self.writer.add_scalar(
                 f"{mode}/01_episode_reward",
                 episode_reward_avg,

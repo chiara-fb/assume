@@ -703,24 +703,18 @@ class WriteOutput(Role):
             np.array: The total reward for each learning bidder.
         """
         
-        if self.db is None:
-            return []
-
-        with self.db.begin() as db:
-            
-            for c in inspect(db.bind).get_columns('rl_params'):
-                if c['name'] in ['unit', 'units_operator']:
-                    bidder = c
-                    break
-
-            query = text(
-            f"SELECT unit, SUM(reward) FROM rl_params "
+        query = text(
+            f"SELECT bidder, SUM(reward) FROM rl_params "
             f"WHERE simulation='{self.simulation_id}' "
             f"AND evaluation_mode={evaluation_mode} "
             f"AND episode={episode} "
-            f"GROUP BY {bidder}"
+            f"GROUP BY bidder"
             )
+        
+        if self.db is None:
+            return []
 
+        with self.db.begin() as db:        
             rewards_by_bidder = db.execute(query).fetchall()
 
         # convert into a numpy array

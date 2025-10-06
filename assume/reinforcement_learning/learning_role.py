@@ -47,9 +47,7 @@ class Learning(Role):
         self.actor_architecture = learning_config.get("actor_architecture", "mlp")
         self.critics = {}
         self.target_critics = {}
-        
-        # this defines the type of reinforcement learning agent (unit or units_operator)
-        self.bidder_type = learning_config.get("bidder_type", "unit")
+    
         # define whether we train model or evaluate it
         self.training_episodes = learning_config["training_episodes"]
         self.learning_mode = learning_config["learning_mode"]
@@ -440,7 +438,6 @@ class Learning(Role):
             episode=episode,
             eval_episode=eval_episode,
             episodes_collecting_initial_experience=self.episodes_collecting_initial_experience,
-            bidder_type=self.bidder_type,
         )
 
         # Parameters required for sending data to the output role
@@ -451,7 +448,7 @@ class Learning(Role):
         self.update_steps = 0
 
     def write_rl_grad_params_to_output(
-        self, learning_rate: float, unit_params_list: list[dict]
+        self, learning_rate: float, bidder_params_list: list[dict]
     ) -> None:
         """
         Writes learning parameters and critic losses to output at specified time intervals.
@@ -464,7 +461,7 @@ class Learning(Role):
         ----------
         learning_rate : float
             The current learning rate used in training.
-        unit_params_list : list[dict]
+        bidder_params_list : list[dict]
             A list of dictionaries containing critic losses for each time step.
             Each dictionary maps critic names to their corresponding loss values.
         """
@@ -484,7 +481,7 @@ class Learning(Role):
                 + self.update_steps
                 * self.gradient_steps  # gradient steps performed in current training episode
                 + gradient_step,
-                "unit": u_id,
+                "bidder": u_id,
                 "actor_loss": params["actor_loss"],
                 "actor_total_grad_norm": params["actor_total_grad_norm"],
                 "actor_max_grad_norm": params["actor_max_grad_norm"],
@@ -494,7 +491,7 @@ class Learning(Role):
                 "learning_rate": learning_rate,
             }
             for gradient_step in range(self.gradient_steps)
-            for u_id, params in unit_params_list[gradient_step].items()
+            for u_id, params in bidder_params_list[gradient_step].items()
         ]
 
         if self.db_addr:

@@ -93,8 +93,8 @@ class TD3(RLAlgorithm):
             th.save(obj, path)
 
         # record the exact order of u_ids and save it with critics to ensure that the same order is used when loading the parameters
-        u_id_list = [str(u) for u in self.learning_role.rl_strats.keys()]
-        mapping = {"u_id_order": u_id_list}
+        id_list = [str(u) for u in self.learning_role.rl_strats.keys()]
+        mapping = {"u_id_order": id_list}
         map_path = os.path.join(directory, "u_id_order.json")
         with open(map_path, "w") as f:
             json.dump(mapping, f, indent=2)
@@ -333,16 +333,16 @@ class TD3(RLAlgorithm):
 
     def create_actors(self) -> None:
         """
-        Create actor networks for reinforcement learning for each unit strategy.
+        Create actor networks for reinforcement learning for each bidder strategy.
 
-        This method initializes actor networks and their corresponding target networks for each unit strategy.
+        This method initializes actor networks and their corresponding target networks for each bidder strategy.
         The actors are designed to map observations to action probabilities in a reinforcement learning setting.
 
-        The created actor networks are associated with each unit strategy and stored as attributes.
+        The created actor networks are associated with each bidder strategy and stored as attributes.
 
         Notes:
             The observation dimension need to be the same, due to the centralized criic that all actors share.
-            If you have units with different observation dimensions. They need to have different critics and hence learning roles.
+            If you have bidders with different observation dimensions. They need to have different critics and hence learning roles.
 
         """
 
@@ -383,7 +383,7 @@ class TD3(RLAlgorithm):
 
         Notes:
             The observation dimension need to be the same, due to the centralized criic that all actors share.
-            If you have units with different observation dimensions. They need to have different critics and hence learning roles.
+            If you have bidders with different observation dimensions. They need to have different critics and hence learning roles.
         """
         n_agents = len(self.learning_role.rl_strats)
 
@@ -475,7 +475,7 @@ class TD3(RLAlgorithm):
         strategies = list(self.learning_role.rl_strats.values())
         n_rl_agents = len(strategies)
 
-        unit_params = [
+        bidder_params = [
             {
                 u_id: {
                     "actor_loss": None,
@@ -499,7 +499,7 @@ class TD3(RLAlgorithm):
             self.learning_role.get_progress_remaining()
         )
 
-        # loop over all units to avoid update call for every gradient step, as it will be ambiguous
+        # loop over all bidders to avoid update call for every gradient step, as it will be ambiguous
         for strategy in strategies:
             self.update_learning_rate(
                 [
@@ -612,8 +612,8 @@ class TD3(RLAlgorithm):
                     for current_q in current_Q_values
                 )
 
-                # Store the critic loss for this unit ID
-                unit_params[step][strategy.unit_id]["critic_loss"] = critic_loss.item()
+                # Store the critic loss for this bidder ID
+                bidder_params[step][strategy.bidder_id]["critic_loss"] = critic_loss.item()
                 total_critic_loss += critic_loss
 
             # Single backward pass for all agents' critics
@@ -633,10 +633,10 @@ class TD3(RLAlgorithm):
                 strategy.critics.optimizer.step()
 
                 # Store clipping statistics
-                unit_params[step][strategy.unit_id]["critic_total_grad_norm"] = (
+                bidder_params[step][strategy.bidder_id]["critic_total_grad_norm"] = (
                     total_norm
                 )
-                unit_params[step][strategy.unit_id]["critic_max_grad_norm"] = (
+                bidder_params[step][strategy.bidder_id]["critic_max_grad_norm"] = (
                     max_grad_norm
                 )
 
@@ -687,8 +687,8 @@ class TD3(RLAlgorithm):
                         all_states_i, all_actions_clone
                     ).mean()
 
-                    # Store the actor loss for this unit ID
-                    unit_params[step][strategy.unit_id]["actor_loss"] = (
+                    # Store the actor loss for this bidder ID
+                    bidder_params[step][strategy.bidder_id]["actor_loss"] = (
                         actor_loss.item()
                     )
                     # Accumulate actor losses
@@ -712,10 +712,10 @@ class TD3(RLAlgorithm):
                     strategy.actor.optimizer.step()
 
                     # Store clipping statistics
-                    unit_params[step][strategy.unit_id]["actor_total_grad_norm"] = (
+                    bidder_params[step][strategy.bidder_id]["actor_total_grad_norm"] = (
                         total_norm
                     )
-                    unit_params[step][strategy.unit_id]["actor_max_grad_norm"] = (
+                    bidder_params[step][strategy.bidder_id]["actor_max_grad_norm"] = (
                         max_grad_norm
                     )
 
@@ -739,4 +739,4 @@ class TD3(RLAlgorithm):
                 polyak_update(all_critic_params, all_target_critic_params, self.tau)
                 polyak_update(all_actor_params, all_target_actor_params, self.tau)
 
-        self.learning_role.write_rl_grad_params_to_output(learning_rate, unit_params)
+        self.learning_role.write_rl_grad_params_to_output(learning_rate, bidder_params)

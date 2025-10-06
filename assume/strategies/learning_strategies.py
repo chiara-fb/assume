@@ -27,7 +27,7 @@ class BaseLearningStrategy(LearningStrategy):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.unit_id = kwargs["unit_id"]
+        self.bidder_id = kwargs["bidder_id"]
 
         # defines bounds of actions space
         self.min_bid_price = kwargs.get("min_bid_price", -100)
@@ -80,7 +80,7 @@ class BaseLearningStrategy(LearningStrategy):
             self.load_actor_params(load_path=kwargs["trained_policies_load_path"])
         else:
             raise FileNotFoundError(
-                f"No policies were provided for DRL unit {self.unit_id}!. Please provide a valid path to the trained policies."
+                f"No policies were provided for DRL unit {self.bidder_id}!. Please provide a valid path to the trained policies."
             )
 
     def load_actor_params(self, load_path):
@@ -90,7 +90,7 @@ class BaseLearningStrategy(LearningStrategy):
         Args:
             load_path (str): The path to load parameters from.
         """
-        directory = f"{load_path}/actors/actor_{self.unit_id}.pt"
+        directory = f"{load_path}/actors/actor_{self.bidder_id}.pt"
 
         params = th.load(directory, map_location=self.device, weights_only=True)
 
