@@ -55,7 +55,8 @@ bidding_strategies: dict[str, type[BaseStrategy | UnitOperatorStrategy]] = {
     "manual_strategy": SimpleManualTerminalStrategy,
     "dmas_powerplant": DmasPowerplantStrategy,
     "dmas_storage": DmasStorageStrategy,
-    "cournot_portfolio": CournotPortfolioStrategy,
+    "portfolio_base": DirectUnitOperatorStrategy,
+    "portfolio_cournot": CournotPortfolioStrategy,
 }
 
 try:
