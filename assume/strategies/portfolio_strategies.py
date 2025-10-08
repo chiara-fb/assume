@@ -150,7 +150,7 @@ class CournotPortfolioStrategy(UnitOperatorStrategy):
         max_power = self.tot_capacity(units_operator)[market_config.market_id]
         operator_bids = Orderbook()
 
-        for unit_id, unit in units_operator.units.items():
+        for unit in units_operator.units.values():
             # Compute bids from marginal costs of a unit
             bids = NaiveSingleBidStrategy().calculate_bids(
                 unit,
@@ -160,7 +160,8 @@ class CournotPortfolioStrategy(UnitOperatorStrategy):
             # Apply Cournot mark-up
             for bid in bids:
                 bid["price"] += self.cournot_markup * max_power
-                bid["unit_id"] = unit_id
+                bid["unit_id"] = unit.id
+                bid["bid_id"] = f"{units_operator.id}_{unit.id}"
 
             operator_bids.extend(bids)
 
