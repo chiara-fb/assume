@@ -104,7 +104,7 @@ class MitigatedOrder(BaseStrategy):
         self.pivotal_threshold = marketconfig.params.get("pivotal_threshold", 1)
         self.conduct_threshold = marketconfig.params.get("conduct_threshold", lambda ref: min(ref + 100, ref * 3))
         self.frequency = int(marketconfig.opening_duration / timedelta(hours=1))
-        self.res_load_obs = unit.forecaster[f"residual_load__{marketconfig.market_id}"]
+        self.res_load_obs = unit.forecaster[f"residual_load_{marketconfig.market_id}"]
 
 
     def pivotality_check(self, units_operator: "UnitsOperator", marketconfig: MarketConfig, start: datetime, end: datetime):
