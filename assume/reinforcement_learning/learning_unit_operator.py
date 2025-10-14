@@ -12,9 +12,13 @@ from assume.common.market_objects import (
     MarketConfig,
     Orderbook,
 )
-from assume.common.utils import convert_tensors, create_rrule, get_products_index
+from assume.common.utils import create_rrule, get_products_index
 from assume.strategies import LearningStrategy, UnitOperatorStrategy
+from assume.strategies.portfolio_learning_strategies import PortfolioRLStrategy
+from assume.common.market_objects import OpeningMessage, MetaDict
+from assume.common.fast_pandas import TensorFastSeries
 from assume.units import BaseUnit
+
 
 
 logger = logging.getLogger(__name__)
@@ -47,10 +51,6 @@ class RLUnitsOperator(UnitsOperator):
                     }
                 )
 
-                    
-
-
-        
 
     def on_ready(self):
         super().on_ready()
@@ -95,8 +95,12 @@ class RLUnitsOperator(UnitsOperator):
                     }
                 )
             
-            if self.portfolio_strategies.get(market.market_id, False) and not hasattr(self, 'outputs'):
-                self.init_portfolio_learning()
+            if self.portfolio_strategies.get(market.market_id, False) == PortfolioRLStrategy:
+                
+                if not hasattr(self, 'outputs'):
+                    # print("adding outputs and forecaster to units_operator in RLUnitsOperator.add_unit")
+                    self.init_portfolio_learning()
+                    
 
 
     def write_learning_to_output(self, orderbook: Orderbook, market_id: str) -> None:
@@ -183,6 +187,10 @@ class RLUnitsOperator(UnitsOperator):
 
         lr_bidders_count = len(self.rl_bidders)
 
+        if not hasattr(self, 'outputs'):
+            # print("adding outputs and forecaster to units_operator in RLUnitsOperator.write_to_learning_role")
+            self.init_portfolio_learning()
+
         # Collect the number of reward values for each unit.
         # This represents how many complete transitions we have for each unit.
         # Using a set ensures we capture only unique lengths across all units.
@@ -245,73 +253,46 @@ class RLUnitsOperator(UnitsOperator):
                 receiver_addr=learning_role_addr,
             )
 
-    async def formulate_bids(
-        self, market: MarketConfig, products: list[tuple]
-    ) -> Orderbook:
-        """
-        Formulates the bid to the market according to the bidding strategy of the each unit individually.
-
-        Args:
-            market (MarketConfig): The market to formulate bids for.
-            products (list[tuple]): The products to formulate bids for.
-
-        Returns:
-            OrderBook: The orderbook that is submitted as a bid to the market.
-        """
-
-        orderbook: Orderbook = []
-
-        for unit_id, unit in self.units.items():
-            product_bids = unit.calculate_bids(
-                market,
-                product_tuples=products,
-            )
-            for i, order in enumerate(product_bids):
-                order["agent_addr"] = self.context.addr
-
-                if market.volume_tick:
-                    order["volume"] = round(order["volume"] / market.volume_tick)
-                if market.price_tick:
-                    order["price"] = round(order["price"] / market.price_tick)
-                if "bid_id" not in order.keys() or order["bid_id"] is None:
-                    order["bid_id"] = f"{unit_id}_{i+1}"
-                order["unit_id"] = unit_id
-                orderbook.append(order)
-
-        # Convert all CUDA tensors to CPU in one pass
-        return convert_tensors(orderbook)
     
 
-
-    async def formulate_bids_portfolio(
-        self, market: MarketConfig, products: list[tuple]
-    ) -> Orderbook:
+    async def submit_bids(self, opening: OpeningMessage, meta: MetaDict) -> None:
         """
-        Formulates the bid to the market according to the bidding strategy of the unit operator.
+        Formulates an orderbook and sends it to the market.
 
         Args:
-            market (MarketConfig): The market to formulate bids for.
-            products (list[tuple]): The products to formulate bids for.
+            opening (OpeningMessage): The opening message.
+            meta (MetaDict): The meta data of the market.
 
-        Returns:
-            OrderBook: The orderbook that is submitted as a bid to the market.
         """
-        orderbook: Orderbook = []
-        portfolio_strategy = self.portfolio_strategies[market.market_id]
-        product_bids = portfolio_strategy.calculate_bids(self, market, products)
+        if not hasattr(self, 'outputs'):
+            # print("adding outputs and forecaster to units_operator in RLUnitsOperator.submit_bids")
+            self.init_portfolio_learning()
 
-        for i, order in enumerate(product_bids):
-            order["agent_addr"] = self.context.addr
-            if market.volume_tick:
-                order["volume"] = round(order["volume"] / market.volume_tick)
-            if market.price_tick:
-                order["price"] = round(order["price"] / market.price_tick)
-            if "bid_id" not in order.keys() or order["bid_id"] is None:
-                order["bid_id"] = f"{self.id}_{i+1}"
-            
-            orderbook.append(order)
-            
-        # Convert all CUDA tensors to CPU in one pass
-        return convert_tensors(orderbook)
+        await super().submit_bids(opening, meta)
+
     
+    def init_portfolio_learning(self):
+        """
+        CFB: added
+        Initializes the outputs for portfolio learning.
+        """
+        
+        unit = next(iter(self.units.values()))
+        self.forecaster = unit.forecaster
+        self.outputs = unit.outputs
+        for rl_out in ["rl_observations", "rl_actions", "rl_rewards"]:
+            self.outputs[rl_out] = []
+        for rl_th in ["actions", "exploration_noise"]:
+            self.outputs[rl_th] = TensorFastSeries(value=0.0, index=unit.index)
 
+    
+    def reset_saved_rl_data(self):
+        """
+        CFB: added (copied from BaseUnit)
+        Resets the saved RL data. This deletes all data besides the observation and action where we do not yet have calculated reward values.
+        """
+        values_len = len(self.outputs["rl_rewards"])
+
+        self.outputs["rl_observations"] = self.outputs["rl_observations"][values_len:]
+        self.outputs["rl_actions"] = self.outputs["rl_actions"][values_len:]
+        self.outputs["rl_rewards"] = []

@@ -1,7 +1,6 @@
 from assume.strategies.learning_strategies import BaseLearningStrategy
 from assume.strategies.portfolio_strategies import UnitOperatorStrategy
 from assume.common.market_objects import MarketConfig, Orderbook, Product
-
 from datetime import datetime, timedelta
 import numpy as np
 import torch as th
@@ -75,8 +74,8 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
     def __init__(self, *args, **kwargs):
 
         obs_dim = kwargs.pop("obs_dim", 43) # 36 shared observations + 7 unique_observations  
-        act_dim = kwargs.pop("act_dim", 6) # price for flexible generation, price for inflexible generation
-        unique_obs_dim = kwargs.pop("unique_obs_dim", 7) # tot inflexible capacity, tot flexible capacity, flexible marginal cost quantiles
+        act_dim = kwargs.pop("act_dim", 6) # 5 prices for flexible generation, 1 price for inflexible generation
+        unique_obs_dim = kwargs.pop("unique_obs_dim", 7) # tot inflexible capacity, tot flexible capacity, 5 flexible marginal cost quantiles
         
         kwargs["bidder_id"] = 'Operator-RL'
         
@@ -139,7 +138,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
         start = product_tuples[0][0]
         end = product_tuples[0][1]
 
-        # assign forecaster, outputs dict and technology_max_power dict to units_operator
+        # assign installed capacity to units_operator
         if not hasattr(units_operator, 'installed_capacity'):
             market_id = market_config.market_id
             tot_capacity = self.tot_capacity(units_operator)
@@ -348,7 +347,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
         flex_q, flex_mc = zip(*sorted_tuples)
     
         # Average marginal costs for each quantile
-        q = np.linspace(0,1,self.n_prices)
+        q = np.linspace(0,1,self.act_dim-1)
         cost_q = np.quantile(flex_mc, q=q, weights=flex_q, method='inverted_cdf')
         scaled_cost = self.scale(cost_q, self.min_bid_price, self.max_bid_price)
 
