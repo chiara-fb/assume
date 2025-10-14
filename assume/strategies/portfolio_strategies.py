@@ -1,20 +1,8 @@
 # SPDX-FileCopyrightText: ASSUME Developers
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
-
-from datetime import datetime, timedelta
-import numpy as np
-
 from assume.common.market_objects import MarketConfig, Orderbook, Product
-from assume.common.utils import get_products_index, parse_duration
 from assume.strategies.naive_strategies import NaiveSingleBidStrategy
-from assume.strategies.flexable import (
-    calculate_EOM_price_if_off,
-    calculate_EOM_price_if_on,
-    get_specific_revenue,
-    update_avg_op_time,
-)
-
 # Import UnitsOperator for type hints
 try:
     from assume.common.units_operator import UnitsOperator
