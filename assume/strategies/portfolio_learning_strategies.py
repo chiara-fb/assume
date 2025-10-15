@@ -13,8 +13,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
 
     The agent submits a discrete price according to their available flexible capacity.
     This strategy utilizes a set of 52 observations to generate actions, which are then transformed into 
-    market bids. The observation space for this strategy consists of 36 global observations and
-    and 3 unique values for each technology type (i.e. 18 in total) in the portfolio. 
+    market bids. 
     
     Observations include the following components:
 
@@ -22,7 +21,7 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
       demand, indicating anticipated grid conditions.
     - **Forecasted Price**: Price forecast over the foresight period, scaled by the maximum bid price,
       providing a sense of expected market prices.
-    - **Total Inflexible Capacity**
+    - **Total Inflexible Capacity** 
     - **Total Flexible Capacity**
     - **Marginal cost quantiles**
 
@@ -440,7 +439,6 @@ class PortfolioRLStrategy(BaseLearningStrategy, UnitOperatorStrategy):
         end_excl = end - unit.index.freq 
         units_operator.outputs["profit"].loc[start:end_excl] += profit
         units_operator.outputs["reward"].loc[start:end_excl] = reward
-        #units_operator.outputs["regret"].loc[start:end_excl] = regret_scale * opportunity_cost
         units_operator.outputs["total_costs"].loc[start:end_excl] = operational_cost
         units_operator.outputs["rl_rewards"].append(reward)
 
