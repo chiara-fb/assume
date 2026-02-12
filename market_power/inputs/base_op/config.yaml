@@ -1,0 +1,50 @@
+base:
+  save_frequency_hours: null
+  time_step: 1h
+  start_date: 2019-01-01 00:00
+  end_date: 2019-01-02 01:00
+
+  bidding_strategy_params:
+    nbins: 2 # number of segment for the cost curve
+    foresight: 1
+    min_markup: 1
+    max_markup: 3
+
+  learning_config:
+    learning_mode: true
+    action_noise_schedule: linear
+    algorithm: matd3
+    batch_size: 128
+    continue_learning: false
+    device: cpu
+    early_stopping_steps: 10
+    episodes_collecting_initial_experience: 20
+    gamma: 0.9 # Can lower the gamma because the problem is myopic
+    gradient_steps: 10
+    learning_rate: 0.001
+    noise_dt: 0.99  
+    noise_scale: 1
+    noise_sigma: 0.2
+    train_freq: 24h 
+    trained_policies_load_path: learned_strategies/base_op_base/last_policies
+    trained_policies_save_path: learned_strategies/base_op_base/last_policies
+    training_episodes: 200
+    validation_episodes_interval: 5
+
+  markets_config:
+    EOM:
+      market_mechanism: pay_as_clear
+      maximum_bid_price: 3000
+      maximum_bid_volume: 100000
+      minimum_bid_price: -500
+      operator: EOM_operator
+      price_unit: EUR/MWh
+      product_type: energy
+      products:
+        - duration: 1h
+          count: 1
+          first_delivery: 1h
+      opening_frequency: 1h
+      opening_duration: 1h
+      volume_unit: MWh
+

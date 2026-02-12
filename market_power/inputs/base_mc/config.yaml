@@ -1,0 +1,23 @@
+base:
+  save_frequency_hours: null
+  time_step: 1h
+  start_date: 2019-01-01 00:00
+  end_date: 2019-01-02 01:00
+
+  markets_config:
+    EOM:
+      market_mechanism: pay_as_clear
+      maximum_bid_price: 3000
+      maximum_bid_volume: 100000
+      minimum_bid_price: -500
+      operator: EOM_operator
+      price_unit: EUR/MWh
+      product_type: energy
+      products:
+        - duration: 1h
+          count: 1
+          first_delivery: 1h
+      opening_frequency: 1h
+      opening_duration: 1h
+      volume_unit: MWh
+
