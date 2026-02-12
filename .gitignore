@@ -150,3 +150,6 @@ examples/notebooks/outputs
 *.pb
 *.jar
 fameSetup.yaml
+
+
+market-power/outputs
