@@ -1,0 +1,4 @@
+,max_power,min_power,node,simulation,technology,unit_operator
+demand_CRM_pos,-1e+06,-0,node0,germany_mc_base_case_2019,reserve_capacity,crm_de
+demand_CRM_neg,-1e+06,-0,node0,germany_mc_base_case_2019,reserve_capacity,crm_de
+demand_EOM,-1e+06,-0,node0,germany_mc_base_case_2019,inflex_demand,eom_de

@@ -1,0 +1,7 @@
+variable,ident,value,simulation
+avg_price,EOM,50.895,germany_op_base_case_2019
+total_cost,EOM,2.8375e+09,germany_op_base_case_2019
+total_volume,EOM,5.5086e+07,germany_op_base_case_2019
+sum_reward,germany_op_base_case_2019,196.84,germany_op_base_case_2019
+sum_regret,germany_op_base_case_2019,9.7444e+07,germany_op_base_case_2019
+sum_profit,germany_op_base_case_2019,3.0795e+08,germany_op_base_case_2019

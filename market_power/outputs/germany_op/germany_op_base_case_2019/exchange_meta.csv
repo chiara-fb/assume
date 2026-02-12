@@ -1,0 +1,10 @@
+,node,price_export,price_import,simulation,technology,unit_operator
+DE_NL,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_CH,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_DK,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_CZ,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_LU,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_SE,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_AT,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_FR,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator
+DE_PL,node0,2999,0,germany_op_base_case_2019,exchange,Exchanges Operator

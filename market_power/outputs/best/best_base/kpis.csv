@@ -1,0 +1,4 @@
+variable,ident,value,simulation
+avg_price,EOM,56,best_base
+total_cost,EOM,8.064e+06,best_base
+total_volume,EOM,1.44e+05,best_base
