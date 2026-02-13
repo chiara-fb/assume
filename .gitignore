@@ -152,4 +152,8 @@ examples/notebooks/outputs
 fameSetup.yaml
 
 
-market-power/outputs
+market_power/outputs
+market_power/temp_db
+*.db
+market_power/*.png
+**/xx_archive

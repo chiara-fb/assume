@@ -154,27 +154,43 @@ class HyperparameterTuner:
 
 if __name__ == "__main__":
     from db_read import *
-    scenario = "base_op" # germany_op
-    db_pardir = "sqlite:///temp_db"
-    db_uri = f"{db_pardir}/{scenario}.db"
+    from market_power_index import *
+    example = "base_op" # germany_op
+    pardir = "sqlite:///temp_db"
+    db_uri = f"{pardir}/{example}.db"
     world = World(database_uri=db_uri)
 
     load_scenario_folder(
     world,
     inputs_path="market_power/inputs",
-    scenario=scenario,
+    scenario=example,
     study_case=False,
     )
     np.random.seed(42)
-    seeds = [int(i) for i in np.random.randint(0,1000, size=10)]
-    trial_params = {"seed": seeds}
+    seeds = np.random.choice(range(1000), size=100, replace=False)
+    trial_params = {"seed": seeds.tolist()}
     hypertuner = HyperparameterTuner(world, 
-                                     scenario, 
-                                     db_pardir, 
+                                     example, 
+                                     pardir, 
                                      trial_params=trial_params)
-    study = hypertuner.run_trials(n_trials=10)
-    df = study.trials_dataframe()
-    df.to_csv("optuna_trials.csv", index=False)
+    study = hypertuner.run_trials(n_trials=100)
+    summary = study.trials_dataframe()
+    summary.to_csv("optuna_trials.csv", index=False)
+
+    all_runs = pd.DataFrame()
+    
+    for seed in seeds:
+        df = read_market_orders(example, pardir, simulation_id=seed)
+        pf = df.groupby(["datetime", "unit_operator"])["profit"].sum().unstack()["Operator-RL"]
+        gen = df.groupby(["datetime", "unit_operator"])["accepted_volume"].sum().unstack()["Operator-RL"]
+        all_runs.loc[seed, "profit (Mn)"] = pf.sum() / 10**6
+        all_runs.loc[seed, "gen (TWh)"] = gen.sum() / 10**6
+        all_runs.loc[seed, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
+        all_runs.loc[seed, "MI"] = marginal_share(df)["Operator-RL"]
+        all_runs.loc[seed, "LI"] = lerner_index(df)["Operator-RL"].mean()
+        all_runs.loc[seed, "OG"] = output_gap(df)["Operator-RL"].mean()
+    
+
     
     
 

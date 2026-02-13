@@ -41,6 +41,7 @@ def read_market_orders(example:str, pardir:str="sqlite:///local_db", study_case:
   database for a given example.
   """
   # Connect to the simulation database
+  
   try:
     engine = create_engine(f"{pardir}/{example}.db")
 
@@ -75,6 +76,8 @@ def read_market_orders(example:str, pardir:str="sqlite:///local_db", study_case:
     
     if unit_operators is not None:
       df = df[df["unit_operator"].isin(unit_operators)]
+    
+    df = df.drop_duplicates()
     print("Market orders read.")
     
     return df

@@ -331,6 +331,11 @@ class UnitsOperator(Role):
             orderbook (Orderbook): The orderbook of the market.
             marketconfig (MarketConfig): The market configuration.
         """
+        
+        self.portfolio_strategies[marketconfig.market_id].calculate_reward(
+            self, marketconfig=marketconfig, orderbook=orderbook
+        )
+        
         orderbook.sort(key=itemgetter("unit_id"))
         for unit_id, orders in groupby(orderbook, itemgetter("unit_id")):
             orderbook = list(orders)

@@ -11,10 +11,10 @@ import torch as th
         
 
 
-class PortfolioRLStrategy(TorchLearningStrategy, UnitOperatorStrategy):
+class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
     """
     Reinforcement Learning Strategy that enables the agent to learn optimal bidding strategies for
-    the portfolio of a units_operator on an Energy-Only Market.
+    the portfolio of a units operator on an Energy-Only Market.
 
     The agent submits a discrete price according to their available flexible capacity.
     This strategy utilizes a set of observations to generate actions, which are then transformed into 
@@ -84,10 +84,9 @@ class PortfolioRLStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         self.nbins = kwargs.pop("nbins", 4)             # numbers of cost bins
         self.steps = kwargs.pop("steps", 1)             # numbers of steps to bid
         act_dim = self.nbins * self.steps               # actions for each time step in the foresight
-        unique_obs_dim = self.nbins * 2                # tuple of volumes and costs for each quantile
-        obs_dim = kwargs.pop("obs_dim",  2 + 3 * self.foresight + unique_obs_dim) 
+        unique_obs_dim = self.nbins * 2 +2              # tuple of volumes and costs for each quantile plus time encodings
+        obs_dim = 3 * self.foresight + unique_obs_dim
         # Hyperparameters for action and reward
-        # self.alpha = kwargs.get("alpha", 0.0)           # risk appetite of unit operator 
         self.min_markup = kwargs.pop("min_markup", 1)   # min markup on marginal cost
         self.max_markup = kwargs.pop("max_markup", 3)   # max markup on marginal cost
         
@@ -337,7 +336,6 @@ class PortfolioRLStrategy(TorchLearningStrategy, UnitOperatorStrategy):
             self.learning_role.add_observation_to_cache(
                 units_operator.id, start, observation
             )
-
         return observation
 
 
@@ -430,7 +428,7 @@ class PortfolioRLStrategy(TorchLearningStrategy, UnitOperatorStrategy):
 
         The reward is scaled and stored along with other outputs in the data to support learning.
         """
-
+ 
         market_getter = itemgetter("start_time", "end_time", "only_hours")
         orderbook.sort(key=market_getter)
         # Function is called after the market is cleared, and we get the market feedback,
@@ -471,12 +469,13 @@ class PortfolioRLStrategy(TorchLearningStrategy, UnitOperatorStrategy):
                 scaled_accepted_vol += accepted_volume * scaling_factor      
 
          
-        reward = (tot_profits - comp_profits) * scaling_factor        
+        reward = (tot_profits - comp_profits) * scaling_factor
  
         if self.learning_mode:
             self.learning_role.add_reward_to_cache(
                 units_operator.id, start, reward, comp_profits, tot_profits
             )
+
 
 
     

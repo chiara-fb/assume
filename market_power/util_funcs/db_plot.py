@@ -78,59 +78,63 @@ def plot_supply_curves(bids_dfs:dict,
     max_vol = -1 * demand["volume"].min()
 
     for t in hours:
-
         for ax, name in zip(axes, bids_dfs):
             ax.clear()
 
-            plot_df = bids_dfs[name].copy()
-            plot_df = plot_df[plot_df["volume"] > 0]
-            plot_df["marginal_cost"] = plot_df.groupby("unit_id")["marginal_cost"].ffill().bfill()
-            # drop rows without price/volume
-            slice_df = plot_df.loc[t]
-            intersect_y = slice_df['accepted_price'].unique()[0]
-            intersect_x = slice_df["accepted_volume"].sum() 
+            try:
+
+                plot_df = bids_dfs[name].copy()
+                plot_df = plot_df[plot_df["volume"] > 0]
+                plot_df["marginal_cost"] = plot_df.groupby("unit_id")["marginal_cost"].ffill().bfill()
+                # drop rows without price/volume
+                slice_df = plot_df.loc[t]
+                intersect_y = slice_df['accepted_price'].unique()[0]
+                intersect_x = slice_df["accepted_volume"].sum() 
+                
+                # sort ascending price and compute cumulative volume
+                sort_df = slice_df.sort_values('price')
+                sort_df = sort_df.reset_index()
+                if only_operators is not None:
+                    sort_df = sort_df[sort_df["unit_operator"].isin(only_operators)]
+                sort_df["cumvol"] = sort_df["volume"].cumsum()
+                sort_df["cmap"] = sort_df["technology"].map(color_dict)
+
+                ax_params = {
+                    'name': name,
+                    'min_bid': min_bid,
+                    'max_bid': max_bid,
+                    'max_vol': max_vol,
+                    'intersect_x': intersect_x,
+                    'intersect_y': intersect_y,
+                }
+
+                prev_x = 0.0
+
+                for i, row in sort_df.iterrows():
+                    x0 = prev_x
+                    x1 = float(row['cumvol'])
+                    y = float(row['price'])
+                    op_to_col = {strategic_operator: "tab:red", 
+                                "renewables_operator": "tab:blue"}
+                    col = op_to_col.get(row["unit_operator"], "tab:grey")
+
+                    # horizontal segment for this bid
+                    ax.hlines(y, x0, x1, colors=col)
+                    ax.hlines(row['marginal_cost'], x0, x1, colors='black', linestyles='dashed')
+
+                    if row["unit_operator"] == strategic_operator:                   
+                        ax_params['profits'] = ax_params.get('profits', 0) + row["profit"]
+
+                    prev_x = x1
+
+                    ax.fill_betweenx([0, y], x0, x1, color=row["cmap"], alpha=0.3)
+                
+
+                ax = supply_curve_ax(ax, ax_params)
+                handles = [Patch(color=c, label=l, alpha=0.3) for l, c in COLOR_DICT.items()]
             
-            # sort ascending price and compute cumulative volume
-            sort_df = slice_df.sort_values('price')
-            sort_df = sort_df.reset_index()
-            if only_operators is not None:
-                sort_df = sort_df[sort_df["unit_operator"].isin(only_operators)]
-            sort_df["cumvol"] = sort_df["volume"].cumsum()
-            sort_df["cmap"] = sort_df["technology"].map(color_dict)
-
-            ax_params = {
-                'name': name,
-                'min_bid': min_bid,
-                'max_bid': max_bid,
-                'max_vol': max_vol,
-                'intersect_x': intersect_x,
-                'intersect_y': intersect_y,
-            }
-
-            prev_x = 0.0
-
-            for i, row in sort_df.iterrows():
-                x0 = prev_x
-                x1 = float(row['cumvol'])
-                y = float(row['price'])
-                op_to_col = {strategic_operator: "tab:red", 
-                             "renewables_operator": "tab:blue"}
-                col = op_to_col.get(row["unit_operator"], "tab:grey")
-
-                # horizontal segment for this bid
-                ax.hlines(y, x0, x1, colors=col)
-                ax.hlines(row['marginal_cost'], x0, x1, colors='black', linestyles='dashed')
-
-                if row["unit_operator"] == strategic_operator:                   
-                    ax_params['profits'] = ax_params.get('profits', 0) + row["profit"]
-
-                prev_x = x1
-
-                ax.fill_betweenx([0, y], x0, x1, color=row["cmap"], alpha=0.3)
-            
-
-            ax = supply_curve_ax(ax, ax_params)
-            handles = [Patch(color=c, label=l, alpha=0.3) for l, c in COLOR_DICT.items()]
+            except Exception as e: 
+                print(e)
             fig.suptitle(f'Supply curve @ {pd.to_datetime(t)}')
             fig.subplots_adjust(bottom=0.15)
             fig.legend(handles=handles, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.02))
@@ -187,3 +191,5 @@ def plot_reward_heatmaps(reward_df, marginal_costs, metric="reward", bins=10):
         ax.set_title(f"Reward as a function of price {i} and {ncols}")
     
     return fig, axes
+
+

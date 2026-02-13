@@ -4,8 +4,8 @@ pp_2,nuclear,powerplant_energy_naive,uranium,0.0,1000,0.0,0.36,9.5,0,0,0,Operato
 pp_3,lignite,powerplant_energy_learning,lignite,0.406,1000,0.0,0.4,4.5,0,0,0,Operator-RL
 pp_4,hard coal,powerplant_energy_naive,hard coal,0.335,1000,0.0,0.5,7.0,0,0,0,Operator 1
 pp_5,hard coal,powerplant_energy_learning,hard coal,0.335,1000,0.0,0.5,7.0,0,0,0,Operator-RL
+pp_6,combined cycle gas turbine,powerplant_energy_naive,natural gas,0.201,500,0.0,0.75,4.0,0,0,0,Operator 1
 pp_7,combined cycle gas turbine,powerplant_energy_naive,natural gas,0.201,500,0.0,0.75,4.0,0,0,0,Operator 1
 pp_8,combined cycle gas turbine,powerplant_energy_naive,natural gas,0.201,500,0.0,0.75,4.0,0,0,0,Operator 1
-pp_9,combined cycle gas turbine,powerplant_energy_naive,natural gas,0.201,500,0.0,0.75,4.0,0,0,0,Operator 1
-pp_10,oil,powerplant_energy_naive,oil,0.201,500,0.0,0.75,0.0,0,0,0,Operator 1
+pp_9,oil,powerplant_energy_naive,oil,0.201,500,0.0,0.75,0.0,0,0,0,Operator 1
 Solar,solar,powerplant_energy_naive,renewable,0.0,10000,0.0,1.0,0.0,0,0,0,renewables_operator

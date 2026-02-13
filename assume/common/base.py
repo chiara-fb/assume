@@ -938,7 +938,6 @@ class LearningStrategy(BaseStrategy):
         # defines the number of provided timeseries, this is necessary for correctly splitting
         # them into suitable format for recurrent neural networks
         self.num_timeseries_obs_dim = num_timeseries_obs_dim
-
         self.obs_dim = num_timeseries_obs_dim * foresight + unique_obs_dim
 
 

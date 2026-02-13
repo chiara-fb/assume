@@ -42,7 +42,7 @@ base:
           count: 1
           first_delivery: 1h
       opening_frequency: 1h
-      opening_duration: 30min
+      opening_duration: 1h
       volume_unit: MWh
       maximum_bid_volume: 100000
       maximum_bid_price: 3000
