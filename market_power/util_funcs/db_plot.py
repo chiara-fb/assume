@@ -75,7 +75,7 @@ def plot_supply_curves(bids_dfs:dict,
     
     demand, supply = b0[b0["volume"] < 0], b0[b0["volume"] > 0]
     min_bid, max_bid = supply['price'].min(), supply['price'].max()
-    max_vol = -1 * demand["volume"].min()
+    max_vol = -1 * demand["volume"].min() + 1000
 
     for t in hours:
         for ax, name in zip(axes, bids_dfs):
@@ -129,7 +129,6 @@ def plot_supply_curves(bids_dfs:dict,
 
                     ax.fill_betweenx([0, y], x0, x1, color=row["cmap"], alpha=0.3)
                 
-
                 ax = supply_curve_ax(ax, ax_params)
                 handles = [Patch(color=c, label=l, alpha=0.3) for l, c in COLOR_DICT.items()]
             
@@ -145,51 +144,6 @@ def plot_supply_curves(bids_dfs:dict,
     
 
 
-def plot_reward_heatmaps(reward_df, marginal_costs, metric="reward", bins=10):
-    
-    plot_df = reward_df.copy()
-    
-    for i, mc in enumerate(marginal_costs):
-        price = (plot_df[f"actions_{i}"] + 2) * mc 
-        plot_df[f"bin_{i}"] = pd.cut(price, bins=bins) 
-    
-    ncols = len(marginal_costs) - 1
-    fig, axes = plt.subplots(ncols=ncols, figsize=(10*ncols,7))
-    if ncols == 1: 
-        axes = (axes,)
-    
-    for i, ax in enumerate(axes):
-        heatmap_data = (
-            plot_df
-            .groupby([f'bin_{ncols}',f'bin_{i}'], observed=False)[metric]
-            .mean()
-            .unstack()
-        )
-        sns.heatmap(
-            heatmap_data,
-            cmap='viridis',
-            ax=ax,
-            #annot=True,
-            cbar_kws={'label': f'mean {metric}'}
-        )
 
-        Z = heatmap_data.values
-        # index of global max (row, col)
-        max_idx = np.unravel_index(np.nanargmax(Z), Z.shape)
-        max_row, max_col = max_idx
-        circle = plt.Circle(
-        (max_col + 0.5, max_row + 0.5),  # center of cell
-        radius=1,
-        fill=False,
-        edgecolor='red',
-        linewidth=5
-        )
-        ax.add_patch(circle)
-        ax.set_xlabel(f'Bid price {i}')
-        ax.set_ylabel(f'Bid price {ncols}')
-        ax.invert_yaxis()
-        ax.set_title(f"Reward as a function of price {i} and {ncols}")
-    
-    return fig, axes
 
 

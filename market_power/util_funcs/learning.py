@@ -155,7 +155,7 @@ class HyperparameterTuner:
 if __name__ == "__main__":
     from db_read import *
     from market_power_index import *
-    example = "base_op" # germany_op
+    example = "base_un" # germany_op
     pardir = "sqlite:///temp_db"
     db_uri = f"{pardir}/{example}.db"
     world = World(database_uri=db_uri)
@@ -175,21 +175,22 @@ if __name__ == "__main__":
                                      trial_params=trial_params)
     study = hypertuner.run_trials(n_trials=100)
     summary = study.trials_dataframe()
-    summary.to_csv("optuna_trials.csv", index=False)
+    summary.to_csv(f"trials_{example}.csv", index=False)
 
     all_runs = pd.DataFrame()
     
     for seed in seeds:
-        df = read_market_orders(example, pardir, simulation_id=seed)
+        df = read_market_orders(example, pardir, simulation_id=f"seed_{seed}")
         pf = df.groupby(["datetime", "unit_operator"])["profit"].sum().unstack()["Operator-RL"]
         gen = df.groupby(["datetime", "unit_operator"])["accepted_volume"].sum().unstack()["Operator-RL"]
         all_runs.loc[seed, "profit (Mn)"] = pf.sum() / 10**6
-        all_runs.loc[seed, "gen (TWh)"] = gen.sum() / 10**6
+        all_runs.loc[seed, "gen (TWh)"] = gen.sum() / 10**3
         all_runs.loc[seed, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
         all_runs.loc[seed, "MI"] = marginal_share(df)["Operator-RL"]
         all_runs.loc[seed, "LI"] = lerner_index(df)["Operator-RL"].mean()
         all_runs.loc[seed, "OG"] = output_gap(df)["Operator-RL"].mean()
     
+    all_runs.to_csv(f"all_seeds_{example}.csv")
 
     
     
