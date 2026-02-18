@@ -3,6 +3,7 @@ import matplotlib as mpl
 import numpy as np
 from db_read import *
 from db_plot import COLOR_DICT
+from assume.scenario import loader_csv
 import pandas as pd
 import seaborn as sns
 import yaml
@@ -14,15 +15,6 @@ tensorboard_summary = {
     "eval_reward": [[1770973019.9057505, 0, 1.9450435638427734], [1770973022.471201, 1, 1.5404722690582275], [1770973024.9031348, 2, 2.8379008769989014], [1770973027.353308, 3, 3.0657718181610107], [1770973029.7760148, 4, 3.1674752235412598], [1770973032.2456079, 5, 3.1437270641326904], [1770973034.71902, 6, 3.113787889480591], [1770973037.1244009, 7, 3.073063611984253], [1770973039.5936964, 8, 3.065746307373047], [1770973042.0194228, 9, 3.1005821228027344], [1770973044.4565766, 10, 3.1160194873809814], [1770973046.8724592, 11, 3.113243341445923], [1770973049.2234502, 12, 3.089825391769409], [1770973051.9202573, 13, 3.157581090927124], [1770973054.4406087, 14, 3.137706756591797], [1770973057.0012407, 15, 3.143338441848755], [1770973059.5831785, 16, 3.1510026454925537], [1770973062.1655283, 17, 3.1518728733062744], [1770973064.7432642, 18, 3.182291030883789], [1770973067.2224512, 19, 3.196505546569824], [1770973069.8195899, 20, 3.193847894668579]]
 }
 
-try:
-    with open("market_power/util_funcs/plot_config.yaml", "r") as f:
-    
-        config = yaml.safe_load(f)
-
-    mpl.rcParams.update(config)
-
-except Exception as e: 
-    print("Loading plot config failed")
 
 
 def plot_example(color_dict:dict=COLOR_DICT):
@@ -130,58 +122,76 @@ def plot_losses(losses_dict):
     return fig, axes
 
 
-def plot_unit_profits(df, marginal_costs, ax=None, metric="sum", circle_best=False, **kwargs):
 
-    df["action"] = df[["actions_0", "actions_1"]].max(axis=1)
-    plot_df = df.pivot_table(index=["episode", "eval"], values="action", 
-                    columns="unit")
-    plot_df.columns = ["id_0", "id_1"]
-    plot_df["profit"] = getattr(df.groupby(["episode", "eval"])["profit"], metric)()
-    plot_df["profit"] = plot_df["profit"] / plot_df["profit"].max()
-    plot_df[["id_0", "id_1"]] *= max(marginal_costs) * 3
+def plot_unit_profits():
+    mc_1, mc_2 = 18.0, 24.0
+    price = lambda b: 54.0 if b < 54.0 else b
+    quant = lambda b: 1000 if b < 54.0 else 500
     
-    for i, mc in enumerate(marginal_costs):
-        cond = (plot_df[f"id_{i}"] >= mc) & (plot_df[f"id_{i}"] <= mc * 3)
-        plot_df = plot_df[cond]
-        bins = np.linspace(1,3,6) * mc
-        plot_df[f"bin_{i}"] = pd.cut(plot_df[f"id_{i}"], bins=bins).map(lambda x: x.right)
+    markups = np.linspace(1.5, 3, 1000)
+    profits_2 = np.zeros_like(markups)
+    profits_tot = np.zeros_like(markups)
+
+    for i, M in enumerate(markups):
+        bid = mc_2 * M
+        p, q = price(bid),quant(bid)
+        pf_2 = (p - mc_2) * q
+        pf_tot = pf_2 + (p - mc_1) * 1000
+        profits_2[i] = pf_2 / 1000
+        profits_tot[i] = pf_tot / 1000
+
+
+    fig, ax = plt.subplots(tight_layout=True)
+    # Vertical line at economic kink: bid = 54
+    k = 54.0 / mc_2
+
+    ax.plot(markups, profits_tot,
+            label="Profit (portfolio)",
+            linewidth=3, color="olive")
+    ax.fill_between(markups[markups > k], 
+                profits_tot[0], profits_tot[markups > k], 
+                color="olive", alpha=0.3, 
+                label="Δ to comp. profit (portfolio)")   
     
-    if ax is None: 
-        fig, ax = plt.subplots(ncols=1)
+    ax.plot(markups, profits_2,
+            label="Profit (unit 2)",
+            linewidth=3, color="brown")
+    ax.fill_between(markups[markups > k], 
+                    profits_2[0], profits_2[markups > k], 
+                    color="brown", alpha=0.3, 
+                    label="Δ to comp. profit (unit 2)")
 
-    heatmap_data = (
-        plot_df
-        .groupby(["bin_1","bin_0"], observed=False)["profit"]
-        .mean()
-        .unstack()
-    )
-    ax = sns.heatmap(
-        heatmap_data,
-        cmap='viridis',
-        ax=ax,
-        **kwargs,
-    )
-    if circle_best:
-        Z = heatmap_data.values
-        # index of global max (row, col)
-        max_idx = np.unravel_index(np.nanargmax(Z), Z.shape)
-        max_row, max_col = max_idx
-        circle = plt.Circle(
-        (max_col + 0.5, max_row + 0.5),  # center of cell
-        radius=1,
-        fill=False,
-        edgecolor='red',
-        linewidth=5
-        )
-        ax.add_patch(circle)
+    ax.axvline(k,
+            color="black",
+            linestyle="--",
+            linewidth=3,
+            label="Price-setting threshold")
+    
 
-    ax.invert_yaxis()
+    ax.set_xlim(1.5,3)
+    ax.grid(True)
 
-    return ax
+    # Labels
+    ax.set_xlabel("Markup (Bid/MC)")
+    ax.set_ylabel("Profit (Mn€)")
+    ax.set_title("Profit in high load hours")
+    # Clean legend
+    ax.legend()
+
+    return fig, ax
 
 
 
 if __name__ == "__main__":
+
+    try:
+        with open("market_power/util_funcs/plot_config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
+        mpl.rcParams.update(config)
+
+    except Exception as e: 
+        print("Loading plot config failed: ",e)
 
     # Figure 1: example of a cost bin
     # fig1, ax1 = plot_example()
@@ -189,35 +199,9 @@ if __name__ == "__main__":
     # fig1.savefig("example.png")
     
     # Figure 3: heatmap for one hour of the day
-    # Note: the figure will look better if you have
-    # explored extensively the action space
-    df = read_rl_params("base_un", 
-                        "sqlite:///market_power/local_db")
-    df = df[df["datetime"].dt.hour == 1]
-    df = df.sort_values(["datetime", "unit"])
-    fig3, axes3 = plt.subplots(1,3, figsize=[30,10], sharex=True, sharey=True)
-    metrics = "first", "last", "sum"
-    titles = "unit 1", "unit 2", "portfolio"
-    kwargs = {"cbar":False, "vmin":0, "vmax":1}
-    mc = [18.0, 24.0] # marginal costs of the 2 units
-    
-    for metric, ax, title in zip(metrics,axes3,titles):
-        ax = plot_unit_profits(df, mc, ax=ax, 
-                               metric=metric, **kwargs)
-        ax.set_title(f"Profit ({title})")
-        ax.set_xlabel("")
-        ax.set_ylabel("")
-    axes3[1].set_xlabel(f'Bid price (Unit 1)')
-    axes3[0].set_ylabel(f'Bid price (Unit 2)')
-    
-    cbar = fig3.colorbar(ax.collections[0], 
-                         ax=axes3, 
-                         orientation='horizontal', 
-                         pad=0.15, shrink=0.5)
-    cbar.set_label("Profit (relative to max)")
-    fig3.savefig("profit_heatmaps.png")
-    fig3.savefig("profit_heatmaps.svg")
-
+    fig3, ax3 = plot_unit_profits()
+    fig3.savefig("profit.png")
+    fig3.savefig("profit.svg")
 
     # Appendix Figure C1: tensorboard output 
     # figc1, axc1 = plot_losses(tensorboard_summary)

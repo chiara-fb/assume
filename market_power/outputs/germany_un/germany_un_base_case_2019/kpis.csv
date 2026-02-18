@@ -1,7 +1,0 @@
-variable,ident,value,simulation
-avg_price,EOM,52.522,germany_un_base_case_2019
-total_cost,EOM,2.9446e+09,germany_un_base_case_2019
-total_volume,EOM,5.51e+07,germany_un_base_case_2019
-sum_reward,germany_un_base_case_2019,-786.88,germany_un_base_case_2019
-sum_regret,germany_un_base_case_2019,2.6602e+08,germany_un_base_case_2019
-sum_profit,germany_un_base_case_2019,7.5639e+07,germany_un_base_case_2019

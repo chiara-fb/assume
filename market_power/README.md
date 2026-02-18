@@ -12,7 +12,7 @@ This repository contains the reference implementation for the paper:
 
 This code uses the RL-strategy for an electricity portfolio operator as described in the paper, and includes:
 
-- A test scenario benchmarked against marginal cost biddig, MADRL, and bilevel optimization
+- A test scenario benchmarked against marginal cost bidding, MADRL, and bilevel optimization
 - A larger scenario representing a portfolio operator in the German market
 
 ---
@@ -30,5 +30,6 @@ This code uses the RL-strategy for an electricity portfolio operator as describe
 │   ├── db_read.py              # Read simulation database
 │   ├── learning.py             # Seeding, hyperparameter tuning
 │   ├── market_power_index.py   # Indices to measure market power
+|   ├── paper_figures.py        # Generates paper figures
 └── README.md
 

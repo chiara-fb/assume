@@ -1,7 +1,0 @@
-variable,ident,value,simulation
-avg_price,EOM,43.363,base_un_base
-total_cost,EOM,6.2443e+06,base_un_base
-total_volume,EOM,1.44e+05,base_un_base
-sum_reward,base_un_base,23.548,base_un_base
-sum_regret,base_un_base,95085,base_un_base
-sum_profit,base_un_base,1.7906e+06,base_un_base

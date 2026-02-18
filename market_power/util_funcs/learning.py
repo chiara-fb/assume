@@ -2,6 +2,7 @@
 from assume.world import World
 from assume.scenario.loader_csv import load_scenario_folder, setup_world, run_learning
 from assume.common.base import LearningConfig
+from itertools import product
 import optuna
 import random
 import numpy as np
@@ -155,11 +156,11 @@ class HyperparameterTuner:
 if __name__ == "__main__":
     from db_read import *
     from market_power_index import *
-    example = "base_un" # germany_op
+    example = "base_op" # germany_op
     pardir = "sqlite:///temp_db"
     db_uri = f"{pardir}/{example}.db"
     world = World(database_uri=db_uri)
-
+    
     load_scenario_folder(
     world,
     inputs_path="market_power/inputs",
@@ -169,28 +170,36 @@ if __name__ == "__main__":
     np.random.seed(42)
     seeds = np.random.choice(range(1000), size=100, replace=False)
     trial_params = {"seed": seeds.tolist()}
+    #                 "gradient_steps":[1,10,100]}
+    # # trial_params = {"seed": [7,21,42,2002,999],
+    # #                 "nbins":[4,8,12,16,20,24,28,32,36]}
     hypertuner = HyperparameterTuner(world, 
                                      example, 
                                      pardir, 
                                      trial_params=trial_params)
-    study = hypertuner.run_trials(n_trials=100)
+    
+    study = hypertuner.run_trials(n_trials=20)
     summary = study.trials_dataframe()
     summary.to_csv(f"trials_{example}.csv", index=False)
 
     all_runs = pd.DataFrame()
+    combinations = [
+    "-".join(f"{k}_{v}" for k, v in zip(list(trial_params), combo))
+    for combo in product(*(trial_params[k] for k in trial_params))]
     
-    for seed in seeds:
-        df = read_market_orders(example, pardir, simulation_id=f"seed_{seed}")
+    for combo in combinations:
+        #df = read_market_orders(example, pardir, simulation_id=f"seed_{combo}")
+        df = read_market_orders(example, pardir, simulation_id=combo)
         pf = df.groupby(["datetime", "unit_operator"])["profit"].sum().unstack()["Operator-RL"]
         gen = df.groupby(["datetime", "unit_operator"])["accepted_volume"].sum().unstack()["Operator-RL"]
-        all_runs.loc[seed, "profit (Mn)"] = pf.sum() / 10**6
-        all_runs.loc[seed, "gen (TWh)"] = gen.sum() / 10**3
-        all_runs.loc[seed, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
-        all_runs.loc[seed, "MI"] = marginal_share(df)["Operator-RL"]
-        all_runs.loc[seed, "LI"] = lerner_index(df)["Operator-RL"].mean()
-        all_runs.loc[seed, "OG"] = output_gap(df)["Operator-RL"].mean()
+        all_runs.loc[combo, "profit (Mn)"] = pf.sum() / 10**6
+        all_runs.loc[combo, "gen (TWh)"] = gen.sum() / 10**3
+        all_runs.loc[combo, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
+        all_runs.loc[combo, "MI"] = marginal_share(df)["Operator-RL"]
+        all_runs.loc[combo, "LI"] = lerner_index(df)["Operator-RL"].mean()
+        all_runs.loc[combo, "OG"] = output_gap(df)["Operator-RL"].mean()
     
-    all_runs.to_csv(f"all_seeds_{example}.csv")
+    all_runs.to_csv(f"all_runs_{example}.csv")
 
     
     

@@ -19,7 +19,7 @@ from assume.common.base import (
 )
 from assume.common.fast_pandas import FastSeries
 from assume.common.market_objects import MarketConfig, Orderbook, Product
-from assume.common.utils import min_max_scale
+from assume.common.utils import min_max_scale, min_max_rescale
 from assume.reinforcement_learning.algorithms import actor_architecture_aliases
 from assume.reinforcement_learning.learning_utils import NormalActionNoise
 
@@ -459,7 +459,8 @@ class EnergyLearningStrategy(TorchLearningStrategy, MinMaxStrategy):
         # =============================================================================
         # actions are in the range [-1,1], we need to transform them into actual bids
         # we can use our domain knowledge to guide the bid formulation
-        bid_prices = actions * self.max_bid_price
+        # bid_prices = actions * self.max_bid_price
+        bid_prices = min_max_rescale(actions, self.min_bid_price, self.max_bid_price, -1, 1)
 
         # 3.1 formulate the bids for Pmin
         # Pmin, the minimum run capacity is the inflexible part of the bid, which should always be accepted
@@ -558,7 +559,7 @@ class EnergyLearningStrategy(TorchLearningStrategy, MinMaxStrategy):
         current_costs = unit.calculate_marginal_cost(start, current_volume)
 
         scaled_total_dispatch = current_volume / unit.max_power
-        scaled_marginal_cost = current_costs / self.max_bid_price
+        scaled_marginal_cost = min_max_scale(current_costs, self.min_bid_price, self.max_bid_price)
 
         individual_observations = np.array(
             [scaled_total_dispatch, scaled_marginal_cost]
