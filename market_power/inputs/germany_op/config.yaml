@@ -4,7 +4,7 @@
 
 base_case_2019:
   start_date: 2019-01-01 00:00
-  end_date: 2019-02-01 00:00 
+  end_date: 2019-01-02 01:00 # 2019-02-01 00:00 
   time_step: 1h
   industrial_dsm_units: null
   save_frequency_hours: 720
@@ -44,7 +44,7 @@ base_case_2019:
     learning_rate_schedule: linear
     training_episodes: 30
     episodes_collecting_initial_experience: 5
-    train_freq: 100h
+    train_freq: 24h # 100h
     gradient_steps: 1
     batch_size: 256
     gamma: 0.85 # lowered gamma because to care about the next ~6 steps

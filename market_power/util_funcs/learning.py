@@ -156,7 +156,7 @@ class HyperparameterTuner:
 if __name__ == "__main__":
     from db_read import *
     from market_power_index import *
-    example = "base_op" # germany_op
+    example = "germany_op" # germany_op
     pardir = "sqlite:///temp_db"
     db_uri = f"{pardir}/{example}.db"
     world = World(database_uri=db_uri)
@@ -171,14 +171,18 @@ if __name__ == "__main__":
     seeds = np.random.choice(range(1000), size=100, replace=False)
     trial_params = {"seed": seeds.tolist()}
     #                 "gradient_steps":[1,10,100]}
-    # # trial_params = {"seed": [7,21,42,2002,999],
-    # #                 "nbins":[4,8,12,16,20,24,28,32,36]}
+    trial_params = {#"seed": [7,21,42,2002,999],
+                    "learning_rate": [0.0001, 0.001], 
+                    "batch_size":[32,128,256],
+                    "gradient_steps": [1,10,100]}
+                    #"nbins":[4,8,12,16,20,24,28,32,36]}
     hypertuner = HyperparameterTuner(world, 
                                      example, 
                                      pardir, 
                                      trial_params=trial_params)
     
-    study = hypertuner.run_trials(n_trials=20)
+    n_trials = np.prod([len(l) for l in trial_params.values()])
+    study = hypertuner.run_trials(n_trials=n_trials)
     summary = study.trials_dataframe()
     summary.to_csv(f"trials_{example}.csv", index=False)
 

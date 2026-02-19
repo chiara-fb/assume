@@ -151,7 +151,7 @@ def plot_unit_profits():
     ax.fill_between(markups[markups > k], 
                 profits_tot[0], profits_tot[markups > k], 
                 color="olive", alpha=0.3, 
-                label="Δ to comp. profit (portfolio)")   
+                label="Δ to lower bound (portfolio)")   
     
     ax.plot(markups, profits_2,
             label="Profit (unit 2)",
@@ -159,7 +159,7 @@ def plot_unit_profits():
     ax.fill_between(markups[markups > k], 
                     profits_2[0], profits_2[markups > k], 
                     color="brown", alpha=0.3, 
-                    label="Δ to comp. profit (unit 2)")
+                    label="Δ to lower bound (unit 2)")
 
     ax.axvline(k,
             color="black",
