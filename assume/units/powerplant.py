@@ -343,6 +343,7 @@ class PowerPlant(SupportsMinMax):
                 "min_power": self.min_power,
                 "emission_factor": self.emission_factor,
                 "efficiency": self.efficiency,
+                "hot_start_cost": self.hot_start_cost,
                 "unit_type": "power_plant",
             }
         )

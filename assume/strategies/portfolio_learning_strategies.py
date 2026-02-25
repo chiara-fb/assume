@@ -456,7 +456,7 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
                 unit = units_operator.units[unit_id]
 
                 comp_price = unit.forecaster.price[market_id][start]
-                clearing_price = order["accepted_price"]
+                clearing_price = order.get("accepted_price", 0)
                 accepted_volume = order.get("accepted_volume", 0)
                 
                 marginal_cost = unit.calculate_marginal_cost(

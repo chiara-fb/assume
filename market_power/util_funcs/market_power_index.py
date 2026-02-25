@@ -5,7 +5,7 @@ def residual_supply_index(bids,
                           deduct_renewables:bool=True,
                           quantity:str="volume",
                           lower_bound:float=0.0,
-                          upper_bound:float=2.0):
+                          upper_bound:float=None):
     
     """This function reads the demand and supply from input files 
     of a scenario to compute the Residual Supply Index (RSI). 

@@ -173,7 +173,7 @@ def plot_unit_profits():
 
     # Labels
     ax.set_xlabel("Markup (Bid/MC)")
-    ax.set_ylabel("Profit (Mn€)")
+    ax.set_ylabel("Profit (k€)")
     ax.set_title("Profit in high load hours")
     # Clean legend
     ax.legend()

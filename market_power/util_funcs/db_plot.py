@@ -39,8 +39,8 @@ def supply_curve_ax(ax:plt.Axes, ax_params:dict):
     #ax.step(np.concatenate(([0], cum_vol)), np.concatenate(([prices[0]], prices)), where='post', linewidth=2)
     # ax.set_xlabel('Cumulative Volume')
     # ax.set_ylabel('Price')
-    ax.set_xlim(left=0, right=ax_params["max_vol"] + 1000)
-    ax.set_ylim(bottom=ax_params["min_bid"] - 5, 
+    #ax.set_xlim(left=0, right=ax_params["max_vol"] + 10000)
+    ax.set_ylim(bottom=0, 
                 top=ax_params["max_bid"] + 5)
 
     # draw vertical line at that cumulative volume and annotate accepted price
@@ -78,7 +78,6 @@ def plot_supply_curves(bids_dfs:dict,
         Must contain 'price', 'volume' and 'accepted_price' columns.
     """
 
-
     ncols = int(np.ceil(len(bids_dfs) / nrows))
     fig, axes = plt.subplots(nrows, ncols, figsize=(10*ncols, 8*nrows), tight_layout=True)
     b0, *_ = bids_dfs.values()
@@ -96,7 +95,8 @@ def plot_supply_curves(bids_dfs:dict,
     fig.supxlabel("Cumulative volume", y=0.08)
     fig.supylabel("Price", x=0.05)
     fig.subplots_adjust(bottom=0.22)
-    labels = set(b0[b0["unit_operator"] == strategic_operator]["technology"])
+
+    labels = b0[b0["unit_operator"] == strategic_operator]["technology"].drop_duplicates()
     handles = [
         *[Patch(color=color_dict[l], label=f"Unit {j+1} ({l})", alpha=0.3) for j,l in enumerate(labels)],
         Patch(color="grey", label="Non-strat. units", alpha=0.3),
@@ -175,7 +175,7 @@ def plot_supply_curves(bids_dfs:dict,
 
             
             except Exception as e: 
-                print(e)
+                print(f"Exception at time {t}: {e}")
 
             # Refresh the display
         clear_output(wait=True)    

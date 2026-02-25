@@ -1,4 +1,3 @@
-
 from assume.world import World
 from assume.scenario.loader_csv import load_scenario_folder, setup_world, run_learning
 from assume.common.base import LearningConfig
@@ -158,33 +157,34 @@ if __name__ == "__main__":
     from market_power_index import *
     example = "germany_op" # germany_op
     pardir = "sqlite:///temp_db"
-    db_uri = f"{pardir}/{example}.db"
-    world = World(database_uri=db_uri)
+    # db_uri = f"{pardir}/{example}.db"
+    # world = World(database_uri=db_uri)
     
-    load_scenario_folder(
-    world,
-    inputs_path="market_power/inputs",
-    scenario=example,
-    study_case=False,
-    )
+    # load_scenario_folder(
+    # world,
+    # inputs_path="market_power/inputs",
+    # scenario=example,
+    # study_case=False,
+    # )
     np.random.seed(42)
-    seeds = np.random.choice(range(1000), size=100, replace=False)
-    trial_params = {"seed": seeds.tolist()}
-    #                 "gradient_steps":[1,10,100]}
-    trial_params = {#"seed": [7,21,42,2002,999],
-                    "learning_rate": [0.0001, 0.001], 
-                    "batch_size":[32,128,256],
-                    "gradient_steps": [1,10,100]}
-                    #"nbins":[4,8,12,16,20,24,28,32,36]}
-    hypertuner = HyperparameterTuner(world, 
-                                     example, 
-                                     pardir, 
-                                     trial_params=trial_params)
+    # seeds = np.random.choice(range(1000), size=100, replace=False)
+    # trial_params = {"seed": seeds.tolist()}
+    # #                 "gradient_steps":[1,10,100]}
+    trial_params = {"seed": [7,21,42,2002,999]}
+    #                 "learning_rate": [0.0001,0.001], 
+    #                 "foresight":[2,6],
+    #                 "noise_sigma":[0.1,0.2,0.3],
+    #                 "gradient_steps": [1,10,100],
+    #                 "nbins":[8,16]}
+    # hypertuner = HyperparameterTuner(world, 
+    #                                  example, 
+    #                                  pardir, 
+    #                                  trial_params=trial_params)
     
-    n_trials = np.prod([len(l) for l in trial_params.values()])
-    study = hypertuner.run_trials(n_trials=n_trials)
-    summary = study.trials_dataframe()
-    summary.to_csv(f"trials_{example}.csv", index=False)
+    # n_trials = np.prod([len(l) for l in trial_params.values()])
+    # study = hypertuner.run_trials(n_trials=n_trials)
+    # summary = study.trials_dataframe()
+    # summary.to_csv(f"trials_{example}.csv", index=False)
 
     all_runs = pd.DataFrame()
     combinations = [
@@ -193,16 +193,24 @@ if __name__ == "__main__":
     
     for combo in combinations:
         #df = read_market_orders(example, pardir, simulation_id=f"seed_{combo}")
-        df = read_market_orders(example, pardir, simulation_id=combo)
-        pf = df.groupby(["datetime", "unit_operator"])["profit"].sum().unstack()["Operator-RL"]
-        gen = df.groupby(["datetime", "unit_operator"])["accepted_volume"].sum().unstack()["Operator-RL"]
-        all_runs.loc[combo, "profit (Mn)"] = pf.sum() / 10**6
-        all_runs.loc[combo, "gen (TWh)"] = gen.sum() / 10**3
-        all_runs.loc[combo, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
-        all_runs.loc[combo, "MI"] = marginal_share(df)["Operator-RL"]
-        all_runs.loc[combo, "LI"] = lerner_index(df)["Operator-RL"].mean()
-        all_runs.loc[combo, "OG"] = output_gap(df)["Operator-RL"].mean()
-    
+        print(combo)
+        try: 
+            df = read_market_orders(example, pardir, simulation_id=combo)
+            pf = df.groupby(["datetime", "unit_operator"])["profit"].sum().unstack()["Operator-RL"]
+            gen = df.groupby(["datetime", "unit_operator"])["accepted_volume"].sum().unstack()["Operator-RL"]
+            if "startup_cost" in df:
+                sc = df.groupby(["datetime", "unit_operator"])["startup_cost"].sum().unstack()["Operator-RL"]
+                all_runs.loc[combo, "startup cost (Mn)"] = sc.sum() / 10**6
+                all_runs.loc[combo, "net profit (Mn)"] = (pf - sc).sum() / 10**6
+                
+            all_runs.loc[combo, "profit (Mn)"] = pf.sum() / 10**6
+            all_runs.loc[combo, "gen (GWh)"] = gen.sum() / 10**3
+            all_runs.loc[combo, "RSI"] = residual_supply_index(df)["Operator-RL"].corr(pf)
+            all_runs.loc[combo, "MI"] = marginal_share(df)["Operator-RL"]
+            all_runs.loc[combo, "LI"] = lerner_index(df)["Operator-RL"].mean()
+            all_runs.loc[combo, "OG"] = output_gap(df)["Operator-RL"].mean()
+        except: 
+            print(f"Combo {combo} does not exist")
     all_runs.to_csv(f"all_runs_{example}.csv")
 
     

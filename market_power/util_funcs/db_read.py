@@ -1,6 +1,21 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 import pandas as pd
 import os
+
+def calculate_startup_costs(df_by_unit:pd.DataFrame):
+      # construct a boolean: TRUE if the unit was started in that time step, FALSE else
+    is_on = lambda x: (x["accepted_volume"] > 0).any() * 1
+    state = df_by_unit.groupby("datetime").apply(is_on, include_groups=False)
+    # Count only start-up costs, not shutdowns
+    startup = state.diff().clip(0,1) 
+    # Divide the startup cost over all the bids for that time step
+    size = df_by_unit.groupby("datetime").size()
+    shared_startup = (startup / size).rename("startup_cost")
+    # multiply the indicator for the startup cost of the unit
+    df_by_unit = df_by_unit.join(shared_startup.fillna(0), on="datetime")
+    df_by_unit["startup_cost"]*=df_by_unit["hot_start_cost"]
+
+    return df_by_unit
 
 
 def read_rl_params(example:str, pardir:str="sqlite:///local_db", study_case:str="base", simulation_id:str=None) -> pd.DataFrame: 
@@ -44,6 +59,17 @@ def read_market_orders(example:str, pardir:str="sqlite:///local_db", study_case:
   
   try:
     engine = create_engine(f"{pardir}/{example}.db")
+    
+    # Check if start-up costs exist in the simulation
+    cols = inspect(engine).get_columns("power_plant_meta")
+    col_names = [col['name'] for col in cols]
+    startup_costs = False
+    pp_query = "pp.unit_operator, pp.max_power, pp.technology, "
+
+    if 'hot_start_cost' in col_names:
+      pp_query+= "pp.hot_start_cost, "
+      startup_costs = True
+      
 
     if simulation_id is None:
       simulation_id = f"{example}_{study_case}"
@@ -51,7 +77,7 @@ def read_market_orders(example:str, pardir:str="sqlite:///local_db", study_case:
     # Query rewards for specific simulation and unit
     sql = f"""
             SELECT mo.*, 
-            pp.unit_operator, pp.max_power, pp.technology,
+            {pp_query}
             ud.energy_generation_costs, ud.power
             FROM market_orders mo
             LEFT JOIN power_plant_meta pp
@@ -64,20 +90,28 @@ def read_market_orders(example:str, pardir:str="sqlite:///local_db", study_case:
             ORDER BY mo.start_time;
             """
     df = pd.read_sql(sql, engine)
+    if unit_operators is not None:
+      df = df[df["unit_operator"].isin(unit_operators)]
+    
+    df = df.drop_duplicates()
+
     df = df.rename(columns={"start_time": "datetime"})
     df["datetime"] = pd.to_datetime(df["datetime"])
+    df = df.sort_values(by=["unit_id", "datetime"])
     df["marginal_cost"] = (
                       df["energy_generation_costs"] /
                       df["power"].where(df["power"] > 0)
                       ).fillna(0)
     df["profit"] = ((df["accepted_price"] - df["marginal_cost"]) * 
                     df["accepted_volume"])
+    
+    # if they exist, add startup costs
+    if startup_costs:
+      group = df.groupby("unit_id", group_keys=True)
+      df = group.apply(calculate_startup_costs, include_groups=False)
+      df = df.reset_index("unit_id")
+    
     df.set_index("datetime", inplace=True)
-    
-    if unit_operators is not None:
-      df = df[df["unit_operator"].isin(unit_operators)]
-    
-    df = df.drop_duplicates()
     print("Market orders read.")
     
     return df

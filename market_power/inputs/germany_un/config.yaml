@@ -4,7 +4,7 @@
 
 base_case_2019:
   start_date: 2019-01-01 00:00
-  end_date: 2019-01-09 00:00 # 2019-02-01 00:00
+  end_date: 2019-01-07 00:00
   time_step: 1h
   industrial_dsm_units: null
   save_frequency_hours: 720
@@ -32,21 +32,21 @@ base_case_2019:
     continue_learning: false
     trained_policies_save_path: null
     min_bid_price: 10
-    max_bid_price: 360
+    max_bid_price: 100
     algorithm: matd3
     learning_rate: 0.0001
-    # learning_rate_schedule: linear
-    training_episodes: 30
-    episodes_collecting_initial_experience: 5
-    train_freq: 100h
+    learning_rate_schedule: linear
+    training_episodes: 75
+    episodes_collecting_initial_experience: 20
+    train_freq: 24h
     gradient_steps: 1
-    batch_size: 256
+    batch_size: 128
     gamma: 0.99
     device: cuda:0
     action_noise_schedule: linear
-    noise_sigma: 0.1
+    noise_sigma: 0.2
     noise_scale: 1
-    noise_dt: 1
+    noise_dt: 0.9
     validation_episodes_interval: 5
-    early_stopping_steps: 3
+    early_stopping_steps: 2
     early_stopping_threshold: 0.05

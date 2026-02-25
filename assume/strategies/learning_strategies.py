@@ -668,7 +668,7 @@ class EnergyLearningStrategy(TorchLearningStrategy, MinMaxStrategy):
         )
 
         # If opportunity cost is negative, no income was lost, so we set it to zero.
-        opportunity_cost = max(opportunity_cost, 0)
+        opportunity_cost = max(opportunity_cost, 0) 
 
         # Dynamic regret scaling:
         # - If accepted volume is positive, apply lower regret (0.1) to avoid punishment for being on the edge of the merit order.
