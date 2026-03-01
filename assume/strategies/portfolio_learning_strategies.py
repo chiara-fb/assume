@@ -182,7 +182,6 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
                 # Find the corresponding cost bin and register it
                 j = np.searchsorted(costs, marginal_cost, side="right")
                 j = min(j, self.nbins-1)
-                self.last_bins[unit_id] = j
 
                 # 3b. Bid INFLEXIBLE generation of online units for their mc 
         
@@ -243,7 +242,8 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         curr_action, noise = super().get_actions(next_observation)
 
         if self.learning_mode and not self.evaluation_mode:
-            # Uniformly random actions in [-1.0, 1.0)
+            # Sample actions according to the forecasted residual load
+            # Higher load -> higher markup
             if self.collect_initial_experience_mode:
                 curr_action = 2 * next_observation[2] - 1 + noise
                 curr_action = th.clamp(curr_action, 
@@ -256,15 +256,17 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
 
         total_capacity = self.total_capacity(units_operator)
         self.installed_capacity = total_capacity[market_id]
-        self.last_profits = np.zeros(self.nbins)
-        self.last_bins = {}
+
+        # Computes the forecasted inframarginal generation capacity: 
+        # total installed capacity of units in the portfolio with
+        # marginal cost lower than forecasted price. Indicates the
+        # leverage of the portfolio operator on the markets.
         gen_obs = 0
 
         for u_id, unit in units_operator.units.items():
             unit_gen = FastSeries(index=unit.index, value=0)
             price_forecast = unit.forecaster.price[market_id] 
             residual_load = unit.forecaster.residual_load[market_id]
-            self.last_bins[u_id] = None
 
             for start in price_forecast.index:
                 marginal_cost = unit.calculate_marginal_cost(start, unit.max_power)
@@ -273,8 +275,6 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
             
             gen_obs+= unit_gen
         
-        # Limits the range for scaling and ensures 
-        # scaling is well defined well-definedness 
         self.min_price = min(price_forecast)
         self.max_price = max(price_forecast)
         self.min_res_load = min(residual_load)
@@ -300,7 +300,7 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         ):
             self.prepare_observations(units_operator, market_id)
 
-        # --- 1. Forecasted residual load and price (forward-looking) ---
+        # --- 1. Forecasted residual load, price and inframarginal capacity (forward-looking) ---
         scaled_res_load_forecast = self.scaled_res_load_obs.window(
             start, self.foresight, direction="forward"
         )
@@ -315,6 +315,7 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         # --- 2. Individual observations ---
         
         individual_observations = self.get_individual_observations(units_operator, start, end)  
+        # Add cyclic encodings for the hour of the day
         hour = np.array([np.sin(2 * np.pi * start.hour / 24), 
                          np.cos(2 * np.pi * start.hour / 24)])
 
@@ -399,11 +400,6 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         quant = np.bincount(index, weights=flex_quant, minlength=self.nbins)
         scaled_quant = quant / self.installed_capacity
 
-        # Reset last profits
-        last_profits = self.last_profits
-        self.last_profits*= 0
-
-        # return np.concatenate([last_profits, scaled_quant, scaled_costs])
         return np.concatenate([scaled_quant, scaled_costs])
     
 
@@ -428,9 +424,6 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
         tot_profits:        Profit from accepted bids minus marginal and start-up costs.
         comp_profits:       Competitive profit benchmark, computed using the price forecast.
         scaling_factor:     A scaling factor to normalize the reward.
-        mp_risk:            Accounts for risk attitude of operator. Net profits are increased if 
-                            operator has profitably raised clearing prices, but decreased if it
-                            did so unprofitably.
 
         The reward is scaled and stored along with other outputs in the data to support learning.
         """
@@ -465,9 +458,6 @@ class PortfolioLearningStrategy(TorchLearningStrategy, UnitOperatorStrategy):
                 # Compute profits
                 unit_profit = (clearing_price - marginal_cost) * accepted_volume
                 tot_profits+= unit_profit
-                # Add unit profits to its bin
-                j = self.last_bins[unit_id]
-                self.last_profits[j] += unit_profit * scaling_factor
 
                 # Compute competitive profits 
                 comp_volume = 0 if comp_price < marginal_cost else order["volume"]
